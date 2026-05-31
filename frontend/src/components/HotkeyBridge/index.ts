@@ -1,0 +1,1 @@
+export { HotkeyBridge } from './HotkeyBridge';

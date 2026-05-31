@@ -1,0 +1,167 @@
+import type { SxProps, Theme } from '@mui/material';
+
+export const performPanelStyles = (theme: Theme): Record<string, SxProps<Theme>> => {
+  const fp = theme.palette.foundation;
+  return {
+    root: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 2,
+    },
+    header: {
+      p: 2,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.divider}`,
+      background: `linear-gradient(135deg, ${fp.bg.content} 0%, ${fp.bg.elevated} 100%)`,
+      display: 'flex',
+      justifyContent: 'space-between',
+      gap: 2,
+      alignItems: 'center',
+      flexWrap: 'wrap',
+    },
+    titleBlock: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 0.5,
+      minWidth: 240,
+    },
+    eyebrow: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      color: fp.accent,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: 800,
+      color: fp.text.primary,
+    },
+    meta: {
+      fontSize: 12,
+      color: fp.text.muted,
+      lineHeight: 1.5,
+    },
+    controls: {
+      display: 'flex',
+      gap: 1,
+      flexWrap: 'wrap',
+      alignItems: 'center',
+    },
+    configRow: {
+      display: 'grid',
+      gridTemplateColumns: { xs: '1fr', sm: 'minmax(180px, 1fr) 140px' },
+      gap: 1.5,
+      alignItems: 'center',
+    },
+    configRowCompact: {
+      display: 'grid',
+      gridTemplateColumns: { xs: '1fr', sm: '140px' },
+      gap: 1.5,
+      alignItems: 'center',
+    },
+    configCard: {
+      p: 1.5,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.divider}`,
+      backgroundColor: fp.bg.content,
+    },
+    progress: {
+      p: 2,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.divider}`,
+      backgroundColor: fp.bg.content,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 1,
+    },
+    progressSlider: {
+      px: 0,
+      color: fp.status.success,
+      '& .MuiSlider-rail': {
+        height: 12,
+        borderRadius: 1,
+        backgroundColor: fp.bg.elevated,
+        border: `1px solid ${fp.divider}`,
+        opacity: 1,
+      },
+      '& .MuiSlider-track': {
+        height: 12,
+        border: 'none',
+        borderRadius: 1,
+        backgroundColor: fp.status.success,
+      },
+      '& .MuiSlider-thumb': {
+        width: 20,
+        height: 20,
+        backgroundColor: fp.status.success,
+        border: `3px solid ${fp.bg.content}`,
+        boxShadow: `0 2px 8px ${fp.divider}`,
+      },
+      '& .MuiSlider-thumb:hover, & .MuiSlider-thumb.Mui-focusVisible': {
+        boxShadow: `0 0 0 8px ${fp.bg.elevated}`,
+      },
+      '&.Mui-disabled': {
+        color: fp.divider,
+      },
+    },
+    progressRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      gap: 1,
+      flexWrap: 'wrap',
+      color: fp.text.secondary,
+      fontSize: 12,
+    },
+    statusGrid: {
+      display: 'grid',
+      gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+      gap: 1,
+    },
+    stat: {
+      p: 1.5,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.divider}`,
+      backgroundColor: fp.bg.content,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 0.4,
+    },
+    statLabel: {
+      fontSize: 11,
+      color: fp.text.muted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+    },
+    statValue: {
+      color: fp.text.primary,
+      fontSize: 16,
+      fontWeight: 800,
+      fontVariantNumeric: 'tabular-nums',
+    },
+    empty: {
+      p: 2,
+      borderRadius: 1.5,
+      border: `1px dashed ${fp.divider}`,
+      color: fp.text.muted,
+      textAlign: 'center',
+      backgroundColor: fp.bg.content,
+    },
+    error: {
+      p: 1.5,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.status.danger}`,
+      backgroundColor: fp.bg.elevated,
+      color: fp.status.danger,
+      fontSize: 13,
+    },
+    warning: {
+      p: 1.5,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.status.warning}`,
+      backgroundColor: fp.bg.elevated,
+      color: fp.status.warning,
+      fontSize: 13,
+    },
+  };
+};

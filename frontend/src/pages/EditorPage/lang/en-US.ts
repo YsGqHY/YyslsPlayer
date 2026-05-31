@@ -1,0 +1,75 @@
+import type { Messages } from '@/i18n';
+
+export const editorPageEnUS: Messages = {
+  editor: {
+    eyebrow: 'MIDI editor',
+    title: 'Playback configuration',
+    subtitle: 'Edit the current score’s base note, pitch shift, speed, minimum press time, and out-of-range policy. Saving updates the project’s default profile directly.',
+    subtitleLoading: 'Loading the current score and configuration…',
+    loading: 'Loading MIDI details…',
+    empty: 'Select a MIDI file in the library before opening the editor.',
+    actions: {
+      back: 'Back to library',
+      reset: 'Restore current config',
+      save: 'Save config',
+      saving: 'Saving…',
+    },
+    profiles: {
+      title: 'Profile selection',
+      count: '{{count}} profiles',
+      select: 'Choose a profile',
+    },
+    config: {
+      title: 'Base parameters',
+    },
+    fields: {
+      name: 'Name',
+      baseNote: 'Base Note',
+      baseNoteHelper: 'Default C3 = 48; calibrate to the score range.',
+      transpose: 'Transpose',
+      transposeHelper: 'Semitone transpose, range -24..24.',
+      octaveShift: 'Octave Shift',
+      octaveShiftHelper: 'Octave shift, range -3..3.',
+      speed: 'Speed',
+      speedHelper: 'Playback speed, range 0.25..3.0.',
+      outOfRangePolicy: 'Out of Range Policy',
+      policyHelper: 'drop / octaveFold / nearest.',
+      minPressMs: 'Min Press',
+      minPressHelper: 'Minimum press duration to avoid missed input.',
+      releaseGapMs: 'Release Gap',
+      releaseGapHelper: 'Gap between consecutive triggers on the same key.',
+      keymapProfileId: 'Keymap Profile ID',
+      keymapHelper: 'Selected mapping profile id.',
+    },
+    policies: {
+      drop: 'drop',
+      octaveFold: 'octaveFold',
+      nearest: 'nearest',
+    },
+    profile: {
+      scopeGlobal: 'This profile is the global default configuration.',
+      scopeProject: 'This profile is bound to the project.',
+    },
+    scopeHint: 'Project: {{project}}',
+    profileHint: 'Selected: {{name}}',
+    summary: {
+      title: 'Quality and preview summary',
+      profile: 'Profile: {{name}}',
+      baseNote: 'Base Note',
+      transpose: 'Transpose',
+      playableRatio: 'Playable Ratio',
+      mappedRange: 'Mapped Range',
+      detail: 'Project summary',
+      file: 'File: {{file}}',
+      noteCount: 'Notes: {{count}}',
+      trackChannel: 'Tracks: {{tracks}} / Channels: {{channels}}',
+    },
+    hint: {
+      clean: 'Current changes match the selected profile.',
+    },
+    errors: {
+      prefix: 'Load failed: ',
+      savePrefix: 'Save failed: ',
+    },
+  },
+};

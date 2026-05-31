@@ -1,0 +1,75 @@
+import type { Messages } from '@/i18n';
+
+export const editorPageZhCN: Messages = {
+  editor: {
+    eyebrow: 'MIDI 编辑器',
+    title: '播放配置',
+    subtitle: '编辑当前曲目的基准音、高低音、倍速、最短按键和超范围策略。保存后会直接更新项目默认 profile。',
+    subtitleLoading: '正在加载当前曲目和配置…',
+    loading: '正在加载 MIDI 详情…',
+    empty: '请先在曲库中选择一首 MIDI，再进入编辑器。',
+    actions: {
+      back: '返回曲库',
+      reset: '恢复当前配置',
+      save: '保存配置',
+      saving: '保存中…',
+    },
+    profiles: {
+      title: '配置选择',
+      count: '{{count}} 个配置',
+      select: '选择一个 profile',
+    },
+    config: {
+      title: '基础参数',
+    },
+    fields: {
+      name: '名称',
+      baseNote: 'Base Note',
+      baseNoteHelper: '默认 C3 = 48，可按音域校准。',
+      transpose: 'Transpose',
+      transposeHelper: '半音移调，范围 -24..24。',
+      octaveShift: 'Octave Shift',
+      octaveShiftHelper: '八度偏移，范围 -3..3。',
+      speed: 'Speed',
+      speedHelper: '播放倍速，范围 0.25..3.0。',
+      outOfRangePolicy: 'Out of Range Policy',
+      policyHelper: 'drop / octaveFold / nearest。',
+      minPressMs: 'Min Press',
+      minPressHelper: '最短按键时长，防止漏键。',
+      releaseGapMs: 'Release Gap',
+      releaseGapHelper: '同键连续触发间隔。',
+      keymapProfileId: 'Keymap Profile ID',
+      keymapHelper: '当前映射 profile 编号。',
+    },
+    policies: {
+      drop: 'drop',
+      octaveFold: 'octaveFold',
+      nearest: 'nearest',
+    },
+    profile: {
+      scopeGlobal: '当前 profile 是全局默认配置。',
+      scopeProject: '当前 profile 绑定到项目专属配置。',
+    },
+    scopeHint: '项目：{{project}}',
+    profileHint: '当前选择：{{name}}',
+    summary: {
+      title: '质量与预览摘要',
+      profile: 'Profile: {{name}}',
+      baseNote: 'Base Note',
+      transpose: 'Transpose',
+      playableRatio: 'Playable Ratio',
+      mappedRange: 'Mapped Range',
+      detail: '当前项目摘要',
+      file: '文件：{{file}}',
+      noteCount: '音符数：{{count}}',
+      trackChannel: '轨道：{{tracks}} / 通道：{{channels}}',
+    },
+    hint: {
+      clean: '当前修改已与所选 profile 一致。',
+    },
+    errors: {
+      prefix: '加载失败：',
+      savePrefix: '保存失败：',
+    },
+  },
+};
