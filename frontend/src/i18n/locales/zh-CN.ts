@@ -23,6 +23,8 @@ export const zhCN: Locale = {
     },
     titleBar: {
       controls: {
+        pin: '窗口置顶',
+        unpin: '取消置顶',
         minimise: '最小化',
         maximise: '最大化 / 还原',
         close: '关闭',

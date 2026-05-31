@@ -11,7 +11,8 @@ export const titleBarStyles = (theme: Theme): Record<string, SxProps<Theme>> => 
       minHeight: 36,
       display: 'flex',
       alignItems: 'center',
-      px: 1.5,
+      pl: 1.5,
+      pr: 0,
       backgroundColor: fp.bg.base,
       borderBottom: `1px solid ${fp.divider}`,
       flexShrink: 0,
@@ -27,8 +28,9 @@ export const titleBarStyles = (theme: Theme): Record<string, SxProps<Theme>> => 
       flex: 1,
     },
     controls: {
+      alignSelf: 'stretch',
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 0,
       pl: 1,
     },
@@ -45,6 +47,19 @@ export const titleBarStyles = (theme: Theme): Record<string, SxProps<Theme>> => 
       '&:hover': {
         backgroundColor: fp.bg.hover,
         color: fp.text.primary,
+      },
+    },
+    controlBtnActive: {
+      width: 46,
+      height: 32,
+      borderRadius: 0,
+      fontSize: 14,
+      backgroundColor: fp.bg.elevated,
+      boxShadow: 'none',
+      color: fp.accent,
+      '&:hover': {
+        backgroundColor: fp.bg.hover,
+        color: fp.accent,
       },
     },
     closeBtn: {

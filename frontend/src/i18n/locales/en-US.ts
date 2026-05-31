@@ -16,6 +16,8 @@ export const enUS: Locale = {
     },
     titleBar: {
       controls: {
+        pin: 'Always on top',
+        unpin: 'Unpin',
         minimise: 'Minimise',
         maximise: 'Maximise / Restore',
         close: 'Close',
