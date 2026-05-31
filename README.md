@@ -6,7 +6,7 @@
 [![MUI](https://img.shields.io/badge/MUI-9.0-007FFF?logo=mui)](https://mui.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript)](https://www.typescriptlang.org)
 
-`YyslsPlayer`（软件中文标题：`燕云流音`）是面向《燕云十六声》的 MIDI 演奏工具。项目当前目标是支持 36 键模式：导入 MIDI、生成预览、按用户配置映射到 36 个 lane，并通过后端按键模拟完成自动演奏。
+`YyslsPlayer`（`燕云流音`）是面向《燕云十六声》的 MIDI 演奏工具。项目当前目标是支持 36 键模式：导入 MIDI、生成预览、按用户配置映射到 36 个 lane，并通过后端按键模拟完成自动演奏。
 
 当前项目由 Wails v3 + Go + React + MUI 构建，前端依赖必须使用 `pnpm` 安装，Wails bindings 由 `wails3 generate bindings` 生成。
 
