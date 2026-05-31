@@ -1,0 +1,26 @@
+.task
+bin
+frontend/dist
+frontend/node_modules
+frontend/bindings
+frontend/tsconfig.tsbuildinfo
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+.claude
+/.idea/
+.ace-to
+.cleanup-unused
+docs
+
+# Go 编译产物（开发时偶尔会在仓库根目录生成）
+/YyslsPlayer.exe
+/YyslsPlayer
+/*.exe
+
+# 日志
+*.log
+
+# OS 元数据
+.DS_Store
+Thumbs.db
+
+CLAUDE.md

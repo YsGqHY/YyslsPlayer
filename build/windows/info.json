@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "",
+			"FileDescription": "燕云流音：面向《燕云十六声》36 键模式的 MIDI 导入、预览与按键模拟演奏工具",
+			"LegalCopyright": "© 2026, YyslsPlayer",
+			"ProductName": "YyslsPlayer",
+			"Comments": "支持 MIDI 导入、试听预览和 36 键模式按键模拟演奏"
+		}
+	}
+}

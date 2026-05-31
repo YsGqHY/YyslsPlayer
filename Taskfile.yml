@@ -1,0 +1,51 @@
+version: '3'
+
+vars:
+  APP_NAME: "YyslsPlayer"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the Windows application
+    cmds:
+      - task: windows:build
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+
+  build:compressed:
+    summary: Builds the Windows application and compresses the executable with UPX
+    cmds:
+      - task: windows:build
+        vars:
+          COMPRESS_EXE: "true"
+
+  package:
+    summary: Packages the Windows application
+    cmds:
+      - task: windows:package
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+
+  package:compressed:
+    summary: Packages the Windows application with a UPX-compressed executable
+    cmds:
+      - task: windows:package
+        vars:
+          COMPRESS_EXE: "true"
+
+  run:
+    summary: Runs the Windows application
+    cmds:
+      - task: windows:run
+
+  dev:
+    summary: Runs the Windows application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
