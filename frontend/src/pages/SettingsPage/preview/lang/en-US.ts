@@ -11,8 +11,8 @@ export const previewSettingsEnUS: Messages = {
           description: 'Web Audio master gain, allowed range 0..0.5. Default is 0.08.',
         },
         waveform: {
-          label: 'Oscillator waveform',
-          description: 'Simple preview tone. This does not change MIDI mapping or game performance.',
+          label: 'Preview tone',
+          description: 'Soft tones are recommended to reduce harsh high frequencies. This does not change MIDI mapping or game performance.',
         },
         progressHz: {
           label: 'Preview refresh rate',
@@ -24,10 +24,18 @@ export const previewSettingsEnUS: Messages = {
         },
       },
       waveforms: {
+        warmSine: 'Warm sine',
+        softSine: 'Soft sine',
+        mellowTriangle: 'Mellow triangle',
+        roundedBell: 'Rounded bell',
+        glassPad: 'Glass pad',
+        mutedPluck: 'Muted pluck',
+        softOrgan: 'Soft organ',
+        warmPad: 'Warm pad',
         sine: 'Sine',
         triangle: 'Triangle',
-        square: 'Square',
-        sawtooth: 'Sawtooth',
+        square: 'Square (bright)',
+        sawtooth: 'Sawtooth (bright)',
       },
       actions: {
         reset: 'Restore preview defaults',

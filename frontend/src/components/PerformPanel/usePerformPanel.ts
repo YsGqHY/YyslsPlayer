@@ -3,6 +3,12 @@ import { usePreferences } from '@/preferences';
 import { PlayerService, type PlayerPositionEvent, type PlayerStateSnapshot, type PlayPlan } from '@/services';
 import { registerHotkeyHandler } from '@/shared/hotkeys';
 
+export interface UsePerformPanelOptions {
+  autoStartToken?: number;
+  onPlayerState?: (snapshot: PlayerStateSnapshot) => void;
+  onStart?: () => void;
+}
+
 export interface PerformPanelState {
   snapshot: PlayerStateSnapshot;
   position: PlayerPositionEvent;
@@ -63,7 +69,7 @@ const clampPosition = (value: number, durationMs: number): number => {
   return next;
 };
 
-export const usePerformPanel = (plan: PlayPlan | null, loading = false): PerformPanelState => {
+export const usePerformPanel = (plan: PlayPlan | null, loading = false, options: UsePerformPanelOptions = {}): PerformPanelState => {
   const { preferences } = usePreferences();
   const [snapshot, setSnapshot] = useState<PlayerStateSnapshot>(INITIAL_STATE);
   const [position, setPosition] = useState<PlayerPositionEvent>(INITIAL_POSITION);
@@ -78,6 +84,8 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false): Perform
   const countdownRef = useRef<number | null>(null);
   const seekingRef = useRef(false);
   const pendingTerminalPositionRef = useRef<number | null>(null);
+  const onPlayerStateRef = useRef<UsePerformPanelOptions['onPlayerState']>(options.onPlayerState);
+  const onStartRef = useRef<UsePerformPanelOptions['onStart']>(options.onStart);
   // 始终指向最新的 start/stop/pause/resume，供全局热键处理器调用（避免闭包过期）。
   const actionsRef = useRef<{ start: () => void; pause: () => void; resume: () => void; stop: () => void }>({
     start: () => {},
@@ -91,9 +99,15 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false): Perform
   }, [seeking]);
 
   useEffect(() => {
+    onPlayerStateRef.current = options.onPlayerState;
+    onStartRef.current = options.onStart;
+  }, [options.onPlayerState, options.onStart]);
+
+  useEffect(() => {
     const offState = PlayerService.onState((event) => {
       sessionRef.current = event.sessionId || sessionRef.current;
       setSnapshot(event);
+      onPlayerStateRef.current?.(event);
       const pendingTerminalPosition = pendingTerminalPositionRef.current;
       if (isTerminal(event.state) && pendingTerminalPosition !== null) {
         pendingTerminalPositionRef.current = null;
@@ -129,6 +143,7 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false): Perform
     const offError = PlayerService.onError((event) => {
       sessionRef.current = event.sessionId || sessionRef.current;
       setSnapshot(event);
+      onPlayerStateRef.current?.(event);
       setError(event.message || event.errorCode || 'PLAYER_ERROR');
     });
     return () => {
@@ -210,6 +225,7 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false): Perform
         const startPositionMs = clampPosition(seekPositionMs, durationMs);
         const session = await PlayerService.start({ plan, dryRun, lookaheadMs: clampLookahead(lookaheadMs), startPositionMs });
         sessionRef.current = session.sessionId;
+        onStartRef.current?.();
         const progress = session.durationMs > 0 ? Math.max(0, Math.min(1, session.positionMs / session.durationMs)) : 0;
         setSeekPositionMs(session.positionMs);
         setPosition({
@@ -296,6 +312,11 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false): Perform
       }
     });
   };
+
+  useEffect(() => {
+    if (!options.autoStartToken) return;
+    actionsRef.current.start();
+  }, [options.autoStartToken]);
 
   // 每次渲染刷新动作引用，让全局热键处理器始终调用到最新闭包。
   actionsRef.current = { start, pause, resume, stop };

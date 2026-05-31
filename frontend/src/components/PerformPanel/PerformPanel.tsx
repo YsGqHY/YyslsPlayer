@@ -4,7 +4,7 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import StopRoundedIcon from '@mui/icons-material/StopRounded';
 import { Box, Button, FormControlLabel, Slider, Switch, TextField, Typography, useTheme } from '@mui/material';
 import { useT } from '@/i18n';
-import type { PlayPlan } from '@/services';
+import type { PlayerStateSnapshot, PlayPlan } from '@/services';
 import { performPanelStyles } from './PerformPanel.styles';
 import { usePerformPanel } from './usePerformPanel';
 
@@ -12,13 +12,16 @@ export interface PerformPanelProps {
   plan: PlayPlan | null;
   loading?: boolean;
   error?: string | null;
+  autoStartToken?: number;
+  onPlayerState?: (snapshot: PlayerStateSnapshot) => void;
+  onStart?: () => void;
 }
 
-export const PerformPanel = ({ plan, loading = false, error = null }: PerformPanelProps) => {
+export const PerformPanel = ({ plan, loading = false, error = null, autoStartToken = 0, onPlayerState, onStart }: PerformPanelProps) => {
   const theme = useTheme();
   const styles = performPanelStyles(theme);
   const t = useT();
-  const vm = usePerformPanel(plan, loading);
+  const vm = usePerformPanel(plan, loading, { autoStartToken, onPlayerState, onStart });
   const showDryRunSwitch = !import.meta.env.PROD;
   const progressPct = `${Math.round(vm.displayProgress * 100)}%`;
   const stateLabel = t(`performPanel.states.${vm.snapshot.state}`);

@@ -11,8 +11,8 @@ export const previewSettingsZhCN: Messages = {
           description: 'Web Audio 主增益，允许 0..0.5；默认 0.08。',
         },
         waveform: {
-          label: '振荡器波形',
-          description: '简单预览音色，不改变 MIDI 映射或游戏演奏。',
+          label: '预览音色',
+          description: '推荐柔和音色，降低高频刺耳感；不改变 MIDI 映射或游戏演奏。',
         },
         progressHz: {
           label: '预览刷新频率',
@@ -24,10 +24,18 @@ export const previewSettingsZhCN: Messages = {
         },
       },
       waveforms: {
+        warmSine: '暖正弦',
+        softSine: '柔正弦',
+        mellowTriangle: '柔三角',
+        roundedBell: '圆润铃音',
+        glassPad: '玻璃 Pad',
+        mutedPluck: '柔拨弦',
+        softOrgan: '柔风琴',
+        warmPad: '暖 Pad',
         sine: '正弦波',
         triangle: '三角波',
-        square: '方波',
-        sawtooth: '锯齿波',
+        square: '方波（较亮）',
+        sawtooth: '锯齿波（较亮）',
       },
       actions: {
         reset: '恢复预览默认值',

@@ -1,3 +1,4 @@
+import type { PreviewTone } from '@/preferences';
 import type { KeyFrame, PlayPlan } from '@/services/midi/MidiService';
 
 export type PreviewEngineState = 'idle' | 'playing' | 'paused' | 'stopped';
@@ -12,7 +13,7 @@ export interface PreviewEngineSnapshot {
 export interface PreviewEngineOptions {
   progressHz?: number;
   masterGain?: number;
-  waveform?: OscillatorType;
+  waveform?: PreviewTone;
 }
 
 type Listener = (snapshot: PreviewEngineSnapshot) => void;
@@ -21,13 +22,39 @@ interface ActiveVoice {
   lane: number;
   oscillator: OscillatorNode;
   gain: GainNode;
+  filter?: BiquadFilterNode;
+  softTone: boolean;
 }
 
 const DEFAULT_PROGRESS_HZ = 10;
 const DEFAULT_GAIN = 0.08;
 const ATTACK_SECONDS = 0.006;
 const RELEASE_SECONDS = 0.035;
+const SOFT_ATTACK_SECONDS = 0.018;
+const SOFT_RELEASE_SECONDS = 0.09;
 const DEFAULT_MIDI_NOTE = 60; // C4, used as the preview pitch anchor.
+
+const nativeWaveforms = new Set<PreviewTone>(['sine', 'triangle', 'square', 'sawtooth']);
+
+interface ToneRecipe {
+  real: number[];
+  imag: number[];
+  filterHz: number;
+  filterQ: number;
+  gainScale: number;
+}
+
+const toneRecipes: Partial<Record<PreviewTone, ToneRecipe>> = {
+  warmSine: { real: [0, 0, 0, 0, 0], imag: [0, 1, 0.08, 0.025, 0.008], filterHz: 2800, filterQ: 0.55, gainScale: 0.9 },
+  softSine: { real: [0, 0, 0, 0], imag: [0, 1, 0.035, 0.012], filterHz: 2200, filterQ: 0.5, gainScale: 0.82 },
+  mellowTriangle: { real: [0, 0, 0, 0, 0, 0], imag: [0, 1, 0, 0.09, 0, 0.025], filterHz: 2400, filterQ: 0.6, gainScale: 0.82 },
+  roundedBell: { real: [0, 0, 0, 0, 0, 0, 0], imag: [0, 1, 0.22, 0.08, 0.035, 0.018, 0.008], filterHz: 3600, filterQ: 0.75, gainScale: 0.72 },
+  glassPad: { real: [0, 0, 0, 0, 0, 0, 0], imag: [0, 1, 0.16, 0.04, 0.03, 0.01, 0.006], filterHz: 3000, filterQ: 0.45, gainScale: 0.68 },
+  mutedPluck: { real: [0, 0, 0, 0, 0], imag: [0, 1, 0.18, 0.06, 0.02], filterHz: 1900, filterQ: 0.8, gainScale: 0.72 },
+  softOrgan: { real: [0, 0, 0, 0, 0, 0], imag: [0, 1, 0.28, 0.12, 0.055, 0.025], filterHz: 2600, filterQ: 0.5, gainScale: 0.65 },
+  warmPad: { real: [0, 0, 0, 0, 0, 0], imag: [0, 1, 0.1, 0.035, 0.012, 0.006], filterHz: 2100, filterQ: 0.42, gainScale: 0.62 },
+};
+
 export class PreviewEngine {
   private audioContext: AudioContext | null = null;
   private plan: PlayPlan | null = null;
@@ -41,12 +68,12 @@ export class PreviewEngine {
   private durationMs = 0;
   private progressHz: number;
   private masterGain: number;
-  private waveform: OscillatorType;
+  private waveform: PreviewTone;
 
   constructor(options: PreviewEngineOptions = {}) {
     this.progressHz = clamp(options.progressHz ?? DEFAULT_PROGRESS_HZ, 1, 30);
     this.masterGain = clamp(options.masterGain ?? DEFAULT_GAIN, 0.01, 0.5);
-    this.waveform = options.waveform ?? 'sine';
+    this.waveform = options.waveform ?? 'warmSine';
   }
 
   subscribe(listener: Listener): () => void {
@@ -205,27 +232,60 @@ export class PreviewEngine {
     this.stopVoice(frame.lane);
     const oscillator = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
-    oscillator.type = this.waveform;
+    const recipe = toneRecipes[this.waveform];
+    const softTone = Boolean(recipe);
+    if (nativeWaveforms.has(this.waveform)) {
+      oscillator.type = this.waveform as OscillatorType;
+    } else if (recipe) {
+      oscillator.setPeriodicWave(this.createPeriodicWave(recipe));
+    } else {
+      oscillator.type = 'sine';
+    }
     oscillator.frequency.value = noteToFrequency(frame.normalizedNote);
-    const velocityGain = clamp(frame.velocity / 127, 0.15, 1) * this.masterGain;
+    const velocityGain = clamp(frame.velocity / 127, 0.15, 1) * this.masterGain * (recipe?.gainScale ?? 1);
     const now = this.audioContext.currentTime;
+    const attackSeconds = softTone ? SOFT_ATTACK_SECONDS : ATTACK_SECONDS;
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(velocityGain, now + ATTACK_SECONDS);
-    oscillator.connect(gain);
-    gain.connect(this.audioContext.destination);
-    oscillator.start(now);
-    this.active.set(frame.lane, { lane: frame.lane, oscillator, gain });
+    gain.gain.linearRampToValueAtTime(velocityGain, now + attackSeconds);
+    if (recipe) {
+      const filter = this.audioContext.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = recipe.filterHz;
+      filter.Q.value = recipe.filterQ;
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.audioContext.destination);
+      oscillator.start(now);
+      this.active.set(frame.lane, { lane: frame.lane, oscillator, gain, filter, softTone });
+    } else {
+      oscillator.connect(gain);
+      gain.connect(this.audioContext.destination);
+      oscillator.start(now);
+      this.active.set(frame.lane, { lane: frame.lane, oscillator, gain, softTone });
+    }
     this.emit();
+  }
+
+  private createPeriodicWave(recipe: ToneRecipe): PeriodicWave {
+    if (!this.audioContext) {
+      throw new Error('AudioContext is not available');
+    }
+    return this.audioContext.createPeriodicWave(
+      new Float32Array(recipe.real),
+      new Float32Array(recipe.imag),
+      { disableNormalization: false },
+    );
   }
 
   private stopVoice(lane: number): void {
     const voice = this.active.get(lane);
     if (!voice || !this.audioContext) return;
     const now = this.audioContext.currentTime;
+    const releaseSeconds = voice.softTone ? SOFT_RELEASE_SECONDS : RELEASE_SECONDS;
     voice.gain.gain.cancelScheduledValues(now);
     voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
-    voice.gain.gain.linearRampToValueAtTime(0, now + RELEASE_SECONDS);
-    voice.oscillator.stop(now + RELEASE_SECONDS + 0.005);
+    voice.gain.gain.linearRampToValueAtTime(0, now + releaseSeconds);
+    voice.oscillator.stop(now + releaseSeconds + 0.005);
     this.active.delete(lane);
     this.emit();
   }

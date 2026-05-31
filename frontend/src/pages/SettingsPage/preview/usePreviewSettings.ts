@@ -13,7 +13,20 @@ export interface UsePreviewSettingsResult {
   reset: () => void;
 }
 
-export const WAVEFORMS: PreviewWaveform[] = ['sine', 'triangle', 'square', 'sawtooth'];
+export const WAVEFORMS: PreviewWaveform[] = [
+  'warmSine',
+  'softSine',
+  'mellowTriangle',
+  'roundedBell',
+  'glassPad',
+  'mutedPluck',
+  'softOrgan',
+  'warmPad',
+  'sine',
+  'triangle',
+  'square',
+  'sawtooth',
+];
 
 const clampNumber = (value: number, min: number, max: number, fallback: number): number => {
   if (!Number.isFinite(value)) return fallback;
