@@ -54,6 +54,32 @@ type ProjectImportData struct {
 	Events  []MidiEvent
 }
 
+const (
+	ProjectBatchImportStatusImported = "imported"
+	ProjectBatchImportStatusSkipped  = "skipped"
+
+	ProjectBatchImportReasonDuplicateInLibrary = "duplicate_in_library"
+)
+
+type ProjectBatchImportResult struct {
+	Project MidiProject
+	Status  string
+	Reason  string
+}
+
+const (
+	ProjectDeleteReasonNotFound  = "project_not_found"
+	ProjectDeleteReasonInvalidID = "invalid_project_id"
+	ProjectDeleteReasonDuplicate = "duplicate_project_id"
+)
+
+type ProjectDeleteResult struct {
+	ProjectID uint
+	Project   MidiProject
+	Deleted   bool
+	Reason    string
+}
+
 func OpenStore(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("storage: empty data path")
@@ -355,6 +381,19 @@ func (s *Store) GetProjectByHash(hash string) (MidiProject, bool) {
 	return MidiProject{}, false
 }
 
+func (s *Store) ProjectHashIndex() map[string]MidiProject {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]MidiProject, len(s.data.MidiProjects))
+	for _, row := range s.data.MidiProjects {
+		if row.FileHash == "" {
+			continue
+		}
+		out[row.FileHash] = row
+	}
+	return out
+}
+
 func (s *Store) ImportProject(input ProjectImportData) (MidiProject, error) {
 	var imported MidiProject
 	err := s.WithWrite(func(d *storeData) error {
@@ -378,6 +417,51 @@ func (s *Store) ImportProject(input ProjectImportData) (MidiProject, error) {
 		return nil
 	})
 	return imported, err
+}
+
+func (s *Store) ImportProjectsBatch(inputs []ProjectImportData) ([]ProjectBatchImportResult, error) {
+	if len(inputs) == 0 {
+		return []ProjectBatchImportResult{}, nil
+	}
+	results := make([]ProjectBatchImportResult, len(inputs))
+	err := s.WithWrite(func(d *storeData) error {
+		existingByHash := make(map[string]MidiProject, len(d.MidiProjects)+len(inputs))
+		for _, row := range d.MidiProjects {
+			if row.FileHash == "" {
+				continue
+			}
+			existingByHash[row.FileHash] = row
+		}
+
+		now := nowMillis()
+		for i, input := range inputs {
+			if input.Project.FileHash != "" {
+				if existing, ok := existingByHash[input.Project.FileHash]; ok {
+					results[i] = ProjectBatchImportResult{Project: existing, Status: ProjectBatchImportStatusSkipped, Reason: ProjectBatchImportReasonDuplicateInLibrary}
+					continue
+				}
+			}
+
+			project := input.Project
+			project.ID = s.nextProjectIDLocked()
+			if project.CreatedAt == 0 {
+				project.CreatedAt = now
+			}
+			project.UpdatedAt = now
+			d.MidiProjects = append(d.MidiProjects, project)
+			for _, event := range input.Events {
+				event.ID = s.nextEventIDLocked()
+				event.ProjectID = project.ID
+				d.MidiEvents = append(d.MidiEvents, event)
+			}
+			if project.FileHash != "" {
+				existingByHash[project.FileHash] = project
+			}
+			results[i] = ProjectBatchImportResult{Project: project, Status: ProjectBatchImportStatusImported}
+		}
+		return nil
+	})
+	return results, err
 }
 
 func (s *Store) ListProjectProfiles(projectID uint) []MidiProfile {
@@ -499,16 +583,61 @@ func (s *Store) AddPlayHistory(row PlayHistory) (PlayHistory, error) {
 }
 
 func (s *Store) DeleteProject(projectID uint) error {
-	return s.WithWrite(func(d *storeData) error {
-		if _, ok := findProject(d.MidiProjects, projectID); !ok {
-			return errors.New("project not found")
+	results, err := s.DeleteProjectsBatch([]uint{projectID})
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 || !results[0].Deleted {
+		return errors.New("project not found")
+	}
+	return nil
+}
+
+func (s *Store) DeleteProjectsBatch(projectIDs []uint) ([]ProjectDeleteResult, error) {
+	if len(projectIDs) == 0 {
+		return []ProjectDeleteResult{}, nil
+	}
+	results := make([]ProjectDeleteResult, len(projectIDs))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	projectByID := make(map[uint]MidiProject, len(s.data.MidiProjects))
+	for _, row := range s.data.MidiProjects {
+		projectByID[row.ID] = row
+	}
+
+	deleteSet := make(map[uint]struct{}, len(projectIDs))
+	for i, projectID := range projectIDs {
+		results[i].ProjectID = projectID
+		if projectID == 0 {
+			results[i].Reason = ProjectDeleteReasonInvalidID
+			continue
 		}
-		d.MidiEvents = filterSlice(d.MidiEvents, func(row MidiEvent) bool { return row.ProjectID != projectID })
-		d.PlayHistory = filterSlice(d.PlayHistory, func(row PlayHistory) bool { return row.ProjectID != projectID })
-		d.MidiProfiles = filterSlice(d.MidiProfiles, func(row MidiProfile) bool { return row.ProjectID == nil || *row.ProjectID != projectID })
-		d.MidiProjects = filterSlice(d.MidiProjects, func(row MidiProject) bool { return row.ID != projectID })
-		return nil
+		if _, exists := deleteSet[projectID]; exists {
+			results[i].Reason = ProjectDeleteReasonDuplicate
+			continue
+		}
+		project, ok := projectByID[projectID]
+		if !ok {
+			results[i].Reason = ProjectDeleteReasonNotFound
+			continue
+		}
+		deleteSet[projectID] = struct{}{}
+		results[i].Project = project
+		results[i].Deleted = true
+	}
+
+	if len(deleteSet) == 0 {
+		return results, nil
+	}
+	s.data.MidiEvents = filterSlice(s.data.MidiEvents, func(row MidiEvent) bool { _, drop := deleteSet[row.ProjectID]; return !drop })
+	s.data.PlayHistory = filterSlice(s.data.PlayHistory, func(row PlayHistory) bool { _, drop := deleteSet[row.ProjectID]; return !drop })
+	s.data.MidiProfiles = filterSlice(s.data.MidiProfiles, func(row MidiProfile) bool {
+		return row.ProjectID == nil || !containsProjectID(deleteSet, *row.ProjectID)
 	})
+	s.data.MidiProjects = filterSlice(s.data.MidiProjects, func(row MidiProject) bool { _, drop := deleteSet[row.ID]; return !drop })
+	s.ensureDefaultsLocked()
+	return results, s.persistLocked()
 }
 
 func (s *Store) ListEventsByProject(projectID uint) []MidiEvent {
@@ -658,6 +787,11 @@ func filterSlice[T any](in []T, keep func(T) bool) []T {
 		}
 	}
 	return out
+}
+
+func containsProjectID(ids map[uint]struct{}, id uint) bool {
+	_, ok := ids[id]
+	return ok
 }
 
 func sortProjects(rows []MidiProject) {

@@ -20,6 +20,7 @@ type MidiProject struct {
 	ChannelCount     int     `json:"channelCount"`
 	DurationMs       int64   `json:"durationMs"`
 	NoteCount        int     `json:"noteCount"`
+	FileSizeBytes    int64   `json:"fileSizeBytes"`
 	DefaultProfileID *uint   `json:"defaultProfileId"`
 	CreatedAt        int64   `json:"createdAt"`
 	UpdatedAt        int64   `json:"updatedAt"`

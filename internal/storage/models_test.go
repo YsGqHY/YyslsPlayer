@@ -131,6 +131,130 @@ func TestOpenCreatesJSONFile(t *testing.T) {
 	}
 }
 
+func TestDeleteProjectsBatchRemovesRelatedRowsOnce(t *testing.T) {
+	db := openStorageTestDB(t, "batch_delete.json")
+	store := db.Store
+	first, err := store.ImportProject(ProjectImportData{
+		Project: MidiProject{DisplayName: "First", FileName: "first.mid", FileHash: "sha256:first", PPQ: 480},
+		Events:  []MidiEvent{{Track: 0, Channel: 0, Note: 60, Velocity: 90, StartMs: 0, DurationMs: 100}},
+	})
+	if err != nil {
+		t.Fatalf("first import failed: %v", err)
+	}
+	second, err := store.ImportProject(ProjectImportData{
+		Project: MidiProject{DisplayName: "Second", FileName: "second.mid", FileHash: "sha256:second", PPQ: 480},
+		Events:  []MidiEvent{{Track: 0, Channel: 0, Note: 62, Velocity: 80, StartMs: 0, DurationMs: 100}},
+	})
+	if err != nil {
+		t.Fatalf("second import failed: %v", err)
+	}
+	profileProjectID := first.ID
+	profile, err := store.SaveProfile(MidiProfile{ProjectID: &profileProjectID, Name: "First profile", BaseNote: DefaultMidiBaseNote, Speed: DefaultMidiSpeed, OutOfRangePolicy: DefaultOutOfRangePolicy, KeymapProfileID: DefaultKeymapProfileID})
+	if err != nil {
+		t.Fatalf("save profile failed: %v", err)
+	}
+	if _, err := store.AddPlayHistory(PlayHistory{ProjectID: first.ID, ProfileID: profile.ID, StartedAt: 1, DurationMs: 100, Completed: true}); err != nil {
+		t.Fatalf("add history failed: %v", err)
+	}
+
+	results, err := store.DeleteProjectsBatch([]uint{0, first.ID, first.ID, 999})
+	if err != nil {
+		t.Fatalf("DeleteProjectsBatch failed: %v", err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("results = %d, want 4", len(results))
+	}
+	if results[0].Deleted || results[0].Reason != ProjectDeleteReasonInvalidID {
+		t.Fatalf("invalid id result = %+v", results[0])
+	}
+	if !results[1].Deleted || results[1].Project.ID != first.ID || results[1].Project.DisplayName != first.DisplayName {
+		t.Fatalf("deleted result = %+v", results[1])
+	}
+	if results[2].Deleted || results[2].Reason != ProjectDeleteReasonDuplicate {
+		t.Fatalf("duplicate result = %+v", results[2])
+	}
+	if results[3].Deleted || results[3].Reason != ProjectDeleteReasonNotFound {
+		t.Fatalf("missing result = %+v", results[3])
+	}
+	if _, ok := store.GetProject(first.ID); ok {
+		t.Fatalf("first project still exists")
+	}
+	if _, ok := store.GetProject(second.ID); !ok {
+		t.Fatalf("second project was deleted")
+	}
+	if got := store.CountEventsByProject(first.ID); got != 0 {
+		t.Fatalf("first events = %d, want 0", got)
+	}
+	if got := store.CountProjectProfiles(first.ID); got != 0 {
+		t.Fatalf("first profiles = %d, want 0", got)
+	}
+	if got := store.CountHistoryByProject(first.ID); got != 0 {
+		t.Fatalf("first history = %d, want 0", got)
+	}
+	if got := store.CountEventsByProject(second.ID); got != 1 {
+		t.Fatalf("second events = %d, want 1", got)
+	}
+	if got := store.CountGlobalDefaultProfiles(); got != 1 {
+		t.Fatalf("global default profiles = %d, want 1", got)
+	}
+}
+
+func TestImportProjectsBatchReturnsPerInputResultsAndHashIndex(t *testing.T) {
+	db := openStorageTestDB(t, "batch_import.json")
+	store := db.Store
+	seed, err := store.ImportProject(ProjectImportData{
+		Project: MidiProject{DisplayName: "Seed", FileName: "seed.mid", FileHash: "sha256:seed", PPQ: 480},
+		Events:  []MidiEvent{{Track: 0, Channel: 0, Note: 60, Velocity: 90, StartMs: 0, DurationMs: 100}},
+	})
+	if err != nil {
+		t.Fatalf("seed import failed: %v", err)
+	}
+
+	index := store.ProjectHashIndex()
+	if got, ok := index["sha256:seed"]; !ok || got.ID != seed.ID || got.DisplayName != seed.DisplayName {
+		t.Fatalf("ProjectHashIndex seed = %+v, ok=%v", got, ok)
+	}
+
+	results, err := store.ImportProjectsBatch([]ProjectImportData{
+		{
+			Project: MidiProject{DisplayName: "Alpha", FileName: "alpha.mid", FileHash: "sha256:alpha", PPQ: 480},
+			Events:  []MidiEvent{{Track: 1, Channel: 0, Note: 62, Velocity: 80, StartMs: 10, DurationMs: 90}},
+		},
+		{
+			Project: MidiProject{DisplayName: "Alpha Duplicate", FileName: "alpha-copy.mid", FileHash: "sha256:alpha", PPQ: 480},
+			Events:  []MidiEvent{{Track: 2, Channel: 0, Note: 64, Velocity: 70, StartMs: 20, DurationMs: 80}},
+		},
+		{
+			Project: MidiProject{DisplayName: "Seed Duplicate", FileName: "seed-copy.mid", FileHash: "sha256:seed", PPQ: 480},
+			Events:  []MidiEvent{{Track: 3, Channel: 0, Note: 65, Velocity: 60, StartMs: 30, DurationMs: 70}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportProjectsBatch failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("batch results = %d, want 3", len(results))
+	}
+	if results[0].Status != ProjectBatchImportStatusImported || results[0].Project.ID == 0 || results[0].Project.FileHash != "sha256:alpha" {
+		t.Fatalf("result 0 = %+v", results[0])
+	}
+	if results[1].Status != ProjectBatchImportStatusSkipped || results[1].Reason != ProjectBatchImportReasonDuplicateInLibrary || results[1].Project.ID != results[0].Project.ID {
+		t.Fatalf("result 1 = %+v, imported=%+v", results[1], results[0])
+	}
+	if results[2].Status != ProjectBatchImportStatusSkipped || results[2].Project.ID != seed.ID {
+		t.Fatalf("result 2 = %+v, seed=%+v", results[2], seed)
+	}
+	if got := store.CountProjects(); got != 2 {
+		t.Fatalf("project count = %d, want 2", got)
+	}
+	if got := store.CountEventsByProject(results[0].Project.ID); got != 1 {
+		t.Fatalf("alpha event count = %d, want 1", got)
+	}
+	if got := store.CountEventsByProject(seed.ID); got != 1 {
+		t.Fatalf("seed event count = %d, want 1", got)
+	}
+}
+
 func assertDefaultLane(t *testing.T, row Keymap36, label string, blackKey bool, virtualKey, scanCode int, modifiers string) {
 	t.Helper()
 	if row.Label != label || row.IsBlackKey != blackKey || row.VirtualKey != virtualKey || row.ScanCode != scanCode || row.ModifierKeysJSON != modifiers {
