@@ -7,7 +7,7 @@ export const editorPageStyles = (theme: Theme): Record<string, SxProps<Theme>> =
       flex: 1,
       minHeight: 0,
       display: 'flex',
-      backgroundColor: fp.bg.content,
+      backgroundColor: 'transparent',
       overflow: 'hidden',
     },
     body: {

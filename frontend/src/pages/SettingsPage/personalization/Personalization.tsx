@@ -1,4 +1,4 @@
-import { Box, ButtonBase, Switch, Typography, useTheme } from '@mui/material';
+import { Box, Button, ButtonBase, Switch, Typography, useTheme } from '@mui/material';
 import { useMemo, type ChangeEvent } from 'react';
 import { useT } from '@/i18n';
 import { CUSTOM_THEME_NAME } from '@/styles/themes';
@@ -106,6 +106,42 @@ const PreferencesSection = ({ vm, shared, styles }: { vm: Vm; shared: Shared; st
         <Typography sx={shared.sectionHint}>
           {t('settings.personalization.preferences.hint')}
         </Typography>
+      </Box>
+      <Box sx={styles.backgroundRow}>
+        <Box sx={styles.backgroundTexts}>
+          <Typography sx={styles.switchLabel}>{t('settings.personalization.preferences.backgroundImage.label')}</Typography>
+          <Typography sx={styles.switchDesc}>{t('settings.personalization.preferences.backgroundImage.description')}</Typography>
+          <Typography sx={styles.backgroundStatus}>
+            {vm.preferences.backgroundImageDataUrl
+              ? t('settings.personalization.preferences.backgroundImage.active')
+              : t('settings.personalization.preferences.backgroundImage.empty')}
+          </Typography>
+          {vm.backgroundImageError && (
+            <Typography sx={styles.backgroundError}>
+              {t('settings.personalization.preferences.backgroundImage.errorPrefix')}{vm.backgroundImageError}
+            </Typography>
+          )}
+        </Box>
+        <Box sx={styles.backgroundActions}>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => void vm.importBackgroundImage(
+              t('settings.personalization.preferences.backgroundImage.dialogTitle'),
+              t('settings.personalization.preferences.backgroundImage.filterName'),
+            )}
+            disabled={vm.importingBackgroundImage}
+          >
+            {vm.importingBackgroundImage
+              ? t('settings.personalization.preferences.backgroundImage.importing')
+              : t('settings.personalization.preferences.backgroundImage.import')}
+          </Button>
+          {vm.preferences.backgroundImageDataUrl && (
+            <Button variant="outlined" size="small" onClick={vm.removeBackgroundImage}>
+              {t('settings.personalization.preferences.backgroundImage.remove')}
+            </Button>
+          )}
+        </Box>
       </Box>
       {switches.map(({ key, labelKey, descriptionKey }) => {
         const label = t(labelKey);

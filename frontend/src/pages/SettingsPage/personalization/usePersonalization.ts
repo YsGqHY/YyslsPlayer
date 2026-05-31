@@ -11,7 +11,7 @@ import {
   type ThemeChoice,
 } from '@/styles/themes';
 import { usePreferences, type Preferences } from '@/preferences';
-import { AppSettingsService } from '@/services';
+import { AppearanceService, AppSettingsService, NativeDialogs } from '@/services';
 
 // 主题选项（仅元数据，文案 key）—— View 层用 t() 解析为最终字符串
 export interface ThemeOption {
@@ -141,6 +141,10 @@ export interface UsePersonalizationResult {
   // 偏好开关
   preferences: Preferences;
   setPreference: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
+  importingBackgroundImage: boolean;
+  backgroundImageError: string | null;
+  importBackgroundImage: (dialogTitle: string, filterName: string) => Promise<void>;
+  removeBackgroundImage: () => void;
 
   // 自定义主题
   customTheme: StoredCustomTheme;
@@ -156,6 +160,8 @@ export interface UsePersonalizationResult {
 export const usePersonalization = (): UsePersonalizationResult => {
   const { choice, available, setChoice, current } = useFoundationTheme();
   const { preferences, setPreference } = usePreferences();
+  const [importingBackgroundImage, setImportingBackgroundImage] = useState(false);
+  const [backgroundImageError, setBackgroundImageError] = useState<string | null>(null);
 
   const themeOptions = useMemo<ThemeOption[]>(() => {
     const system = themeOptionFor('system', 'System', 'Follow OS preference');
@@ -179,6 +185,32 @@ export const usePersonalization = (): UsePersonalizationResult => {
   const currentThemeKey = THEME_NAME_TO_KEY[current.name] ?? null;
   const currentThemeLabelKey = currentThemeKey ? `settings.themes.${currentThemeKey}.label` : '';
   const currentThemeFallbackLabel = current.label;
+
+  const importBackgroundImage = useCallback(
+    async (dialogTitle: string, filterName: string): Promise<void> => {
+      setBackgroundImageError(null);
+      const path = await NativeDialogs.openFile({
+        title: dialogTitle,
+        filters: [{ displayName: filterName, pattern: '*.png;*.jpg;*.jpeg;*.webp;*.gif' }],
+      });
+      if (!path) return;
+      setImportingBackgroundImage(true);
+      try {
+        const image = await AppearanceService.importBackgroundImage(path);
+        setPreference('backgroundImageDataUrl', image.dataUrl);
+      } catch (error: unknown) {
+        setBackgroundImageError(error instanceof Error ? error.message : String(error ?? ''));
+      } finally {
+        setImportingBackgroundImage(false);
+      }
+    },
+    [setPreference],
+  );
+
+  const removeBackgroundImage = useCallback((): void => {
+    setBackgroundImageError(null);
+    setPreference('backgroundImageDataUrl', '');
+  }, [setPreference]);
 
   // —— 自定义主题 ——
   // 异步：customTheme 数据由 ThemeProvider 在 mount 时从 AppSettingsService 拉取
@@ -260,6 +292,10 @@ export const usePersonalization = (): UsePersonalizationResult => {
 
     preferences,
     setPreference,
+    importingBackgroundImage,
+    backgroundImageError,
+    importBackgroundImage,
+    removeBackgroundImage,
 
     customTheme,
     hasCustomTheme,

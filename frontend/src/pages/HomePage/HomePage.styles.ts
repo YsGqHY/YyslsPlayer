@@ -8,7 +8,7 @@ export const homePageStyles = (theme: Theme): Record<string, SxProps<Theme>> => 
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
-      backgroundColor: fp.bg.content,
+      backgroundColor: 'transparent',
       overflow: 'hidden',
     },
     body: {

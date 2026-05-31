@@ -2,6 +2,7 @@ import { Box, useTheme } from '@mui/material';
 import { TitleBar } from '@/components/TitleBar';
 import { Sidebar } from '@/components/Sidebar';
 import { HotkeyBridge } from '@/components/HotkeyBridge';
+import { usePreferences } from '@/preferences';
 import { RouterOutlet } from '@/router';
 import { appLayoutStyles } from './AppLayout.styles';
 
@@ -17,7 +18,8 @@ export interface AppLayoutProps {
 // AppLayout 不接收 children —— 主内容由 RouterOutlet 从路由表渲染。
 export const AppLayout = ({ title }: AppLayoutProps) => {
   const theme = useTheme();
-  const styles = appLayoutStyles(theme);
+  const { preferences } = usePreferences();
+  const styles = appLayoutStyles(theme, preferences.backgroundImageDataUrl);
 
   return (
     <>

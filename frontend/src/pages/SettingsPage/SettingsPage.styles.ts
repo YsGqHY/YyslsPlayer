@@ -19,7 +19,7 @@ export const settingsPageStyles = (theme: Theme): Record<string, SxProps<Theme>>
       minHeight: 0,
       display: 'flex',
       flexDirection: 'row',
-      backgroundColor: fp.bg.content,
+      backgroundColor: 'transparent',
       overflow: 'hidden',
     },
 

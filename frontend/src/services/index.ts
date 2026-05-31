@@ -1,4 +1,5 @@
 export { PreferencesService } from './preferences/PreferencesService';
+export { AppearanceService, type ImportedBackgroundImage } from './appearance/AppearanceService';
 export {
   AppSettingsService,
   type AppSettingsSnapshot,
@@ -32,6 +33,9 @@ export {
   type ImportBatchStatus,
   type ImportBatchItem,
   type ImportBatchResult,
+  type ProjectBatchManageStatus,
+  type ProjectBatchManageItem,
+  type ProjectBatchManageResult,
   type MidiProjectSummary,
   type MidiProfile,
   type KeymapLane,

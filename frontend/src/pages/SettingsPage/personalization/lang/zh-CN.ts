@@ -21,6 +21,18 @@ export const personalizationZhCN: Messages = {
           label: '显示菜单 Tooltip',
           description: '鼠标悬停时显示菜单按钮的名称气泡',
         },
+        backgroundImage: {
+          label: '应用背景图片',
+          description: '导入本地图片作为应用主区域背景，图片会保存到偏好设置中。',
+          active: '当前已启用自定义背景图片。',
+          empty: '当前使用主题默认背景。',
+          import: '导入背景图片',
+          importing: '导入中…',
+          remove: '移除背景图片',
+          dialogTitle: '选择背景图片',
+          filterName: '图片文件',
+          errorPrefix: '导入失败：',
+        },
       },
       customTheme: {
         title: '自定义主题',

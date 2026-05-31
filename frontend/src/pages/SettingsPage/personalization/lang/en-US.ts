@@ -20,6 +20,18 @@ export const personalizationEnUS: Messages = {
           label: 'Show menu tooltips',
           description: 'Show the name bubble when hovering over menu buttons',
         },
+        backgroundImage: {
+          label: 'Application background image',
+          description: 'Import a local image as the main application background. The image is saved in preferences.',
+          active: 'A custom background image is enabled.',
+          empty: 'Using the theme default background.',
+          import: 'Import background image',
+          importing: 'Importing…',
+          remove: 'Remove background image',
+          dialogTitle: 'Choose background image',
+          filterName: 'Image files',
+          errorPrefix: 'Import failed: ',
+        },
       },
       customTheme: {
         title: 'Custom theme',

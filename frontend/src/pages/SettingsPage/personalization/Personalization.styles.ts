@@ -83,6 +83,41 @@ export const personalizationStyles = (theme: Theme): Record<string, SxProps<Them
       color: fp.text.muted,
       lineHeight: 1.5,
     },
+    backgroundRow: {
+      display: 'flex',
+      alignItems: { xs: 'stretch', sm: 'center' },
+      justifyContent: 'space-between',
+      gap: 2,
+      px: 2.5,
+      py: 2,
+      borderRadius: 1.5,
+      border: `1px solid ${fp.divider}`,
+      backgroundColor: fp.bg.surface,
+      flexDirection: { xs: 'column', sm: 'row' },
+    },
+    backgroundTexts: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 0.25,
+      minWidth: 0,
+    },
+    backgroundStatus: {
+      fontSize: 12,
+      color: fp.text.secondary,
+      lineHeight: 1.5,
+    },
+    backgroundError: {
+      fontSize: 12,
+      color: fp.status.danger,
+      lineHeight: 1.5,
+    },
+    backgroundActions: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: 1,
+      justifyContent: { xs: 'flex-start', sm: 'flex-end' },
+      flexShrink: 0,
+    },
 
     // —— 自定义主题：颜色字段网格 ——
     paletteToolbar: {
