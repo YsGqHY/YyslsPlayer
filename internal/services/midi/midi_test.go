@@ -103,6 +103,9 @@ func TestImportFileCreatesProjectAndDeduplicatesByHash(t *testing.T) {
 	if first.Project.NoteCount != 1 || first.EventCount != 1 || first.Project.DurationMs != 500 {
 		t.Fatalf("unexpected parsed note summary: %+v", first)
 	}
+	if first.Project.FileSizeBytes != int64(len(minimalMidiBytes())) {
+		t.Fatalf("file size bytes = %d, want %d", first.Project.FileSizeBytes, len(minimalMidiBytes()))
+	}
 	if first.DefaultProfile.ID == 0 || len(first.DefaultKeymap.Lanes) != 36 {
 		t.Fatalf("default profile/keymap missing in detail: %+v", first)
 	}
@@ -133,11 +136,15 @@ func TestImportFilesReportsImportedSkippedAndFailed(t *testing.T) {
 	dir := t.TempDir()
 
 	existingPath := filepath.Join(dir, "existing.mid")
+	existingDuplicatePath := filepath.Join(dir, "existing-copy.mid")
 	firstPath := filepath.Join(dir, "first.mid")
 	duplicatePath := filepath.Join(dir, "duplicate.midi")
 	badPath := filepath.Join(dir, "bad.mid")
 	if err := os.WriteFile(existingPath, minimalMidiBytes(), 0o644); err != nil {
 		t.Fatalf("write existing fixture failed: %v", err)
+	}
+	if err := os.WriteFile(existingDuplicatePath, minimalMidiBytes(), 0o644); err != nil {
+		t.Fatalf("write existing duplicate fixture failed: %v", err)
 	}
 	if err := os.WriteFile(firstPath, singleNoteMidiBytes(62), 0o644); err != nil {
 		t.Fatalf("write first fixture failed: %v", err)
@@ -154,28 +161,31 @@ func TestImportFilesReportsImportedSkippedAndFailed(t *testing.T) {
 		t.Fatalf("seed existing import failed: %v", err)
 	}
 
-	result, err := svc.ImportFiles(ctx, []string{existingPath, firstPath, duplicatePath, badPath})
+	result, err := svc.ImportFiles(ctx, []string{existingPath, existingDuplicatePath, firstPath, duplicatePath, badPath})
 	if err != nil {
 		t.Fatalf("ImportFiles failed: %v", err)
 	}
-	if result.TotalCount != 4 || len(result.Items) != 4 {
+	if result.TotalCount != 5 || len(result.Items) != 5 {
 		t.Fatalf("unexpected result size: %+v", result)
 	}
-	if result.ImportedCount != 1 || result.SkippedCount != 2 || result.FailedCount != 1 {
+	if result.ImportedCount != 1 || result.SkippedCount != 3 || result.FailedCount != 1 {
 		t.Fatalf("unexpected counters: %+v", result)
 	}
 	if result.Items[0].Status != importStatusSkipped || result.Items[0].Reason != importReasonDuplicateInLibrary || result.Items[0].ProjectID == nil || *result.Items[0].ProjectID != existing.Project.ID {
 		t.Fatalf("existing duplicate item = %+v", result.Items[0])
 	}
-	if result.Items[1].Status != importStatusImported || result.Items[1].ProjectID == nil {
-		t.Fatalf("first import item = %+v", result.Items[1])
+	if result.Items[1].Status != importStatusSkipped || result.Items[1].Reason != importReasonDuplicateInBatch || result.Items[1].ProjectID == nil || *result.Items[1].ProjectID != existing.Project.ID {
+		t.Fatalf("existing batch duplicate item = %+v", result.Items[1])
 	}
-	importedProjectID := *result.Items[1].ProjectID
-	if result.Items[2].Status != importStatusSkipped || result.Items[2].Reason != importReasonDuplicateInBatch || result.Items[2].ProjectID == nil || *result.Items[2].ProjectID != importedProjectID {
-		t.Fatalf("batch duplicate item = %+v", result.Items[2])
+	if result.Items[2].Status != importStatusImported || result.Items[2].ProjectID == nil {
+		t.Fatalf("first import item = %+v", result.Items[2])
 	}
-	if result.Items[3].Status != importStatusFailed || result.Items[3].Error == "" {
-		t.Fatalf("failed item = %+v", result.Items[3])
+	importedProjectID := *result.Items[2].ProjectID
+	if result.Items[3].Status != importStatusSkipped || result.Items[3].Reason != importReasonDuplicateInBatch || result.Items[3].ProjectID == nil || *result.Items[3].ProjectID != importedProjectID {
+		t.Fatalf("batch duplicate item = %+v", result.Items[3])
+	}
+	if result.Items[4].Status != importStatusFailed || result.Items[4].Error == "" {
+		t.Fatalf("failed item = %+v", result.Items[4])
 	}
 	if result.FirstProjectID == nil || *result.FirstProjectID != existing.Project.ID {
 		t.Fatalf("first project id = %v, want %d", result.FirstProjectID, existing.Project.ID)
@@ -479,6 +489,50 @@ func TestServiceListGetDeleteProject(t *testing.T) {
 	}
 	assertProjectRowsDeleted(t, db, project.ID)
 	assertDefaultRowsPreserved(t, db)
+}
+
+func TestServiceDeleteProjectsReportsBatchResult(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t, "midi_batch_delete.json")
+	svc := New(storage.NewHolder(db))
+
+	first, err := db.Store.SaveProject(storage.MidiProject{DisplayName: "First", FileName: "first.mid", FileHash: "hash-first", PPQ: 480})
+	if err != nil {
+		t.Fatalf("create first project failed: %v", err)
+	}
+	second, err := db.Store.SaveProject(storage.MidiProject{DisplayName: "Second", FileName: "second.mid", FileHash: "hash-second", PPQ: 480})
+	if err != nil {
+		t.Fatalf("create second project failed: %v", err)
+	}
+	if err := db.Store.AddEvents([]storage.MidiEvent{{ProjectID: first.ID, Track: 0, Channel: 0, Note: 60, Velocity: 90, StartMs: 0, DurationMs: 100}}); err != nil {
+		t.Fatalf("add first events failed: %v", err)
+	}
+	if err := db.Store.AddEvents([]storage.MidiEvent{{ProjectID: second.ID, Track: 0, Channel: 0, Note: 62, Velocity: 90, StartMs: 0, DurationMs: 100}}); err != nil {
+		t.Fatalf("add second events failed: %v", err)
+	}
+
+	result, err := svc.DeleteProjects(ctx, []uint{first.ID, 999, second.ID})
+	if err != nil {
+		t.Fatalf("DeleteProjects failed: %v", err)
+	}
+	if result.TotalCount != 3 || result.DeletedCount != 2 || result.FailedCount != 1 || len(result.Items) != 3 {
+		t.Fatalf("unexpected batch delete result: %+v", result)
+	}
+	if result.Items[0].Status != projectBatchStatusDeleted || result.Items[0].DisplayName != first.DisplayName {
+		t.Fatalf("first delete item = %+v", result.Items[0])
+	}
+	if result.Items[1].Status != projectBatchStatusFailed || result.Items[1].Reason == "" {
+		t.Fatalf("missing delete item = %+v", result.Items[1])
+	}
+	if result.Items[2].Status != projectBatchStatusDeleted || result.Items[2].ProjectID != second.ID {
+		t.Fatalf("second delete item = %+v", result.Items[2])
+	}
+	if got := db.Store.CountProjects(); got != 0 {
+		t.Fatalf("project count = %d, want 0", got)
+	}
+	if got := db.Store.CountEventsByProject(first.ID) + db.Store.CountEventsByProject(second.ID); got != 0 {
+		t.Fatalf("deleted event count = %d, want 0", got)
+	}
 }
 
 func TestServiceUpdateProfileCreatesProjectScopedCopy(t *testing.T) {

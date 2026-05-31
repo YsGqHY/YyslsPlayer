@@ -5,6 +5,7 @@ export const AppEvents = {
   PlayerPosition: 'player:position',
   PlayerError: 'player:error',
   HotkeyTriggered: 'hotkey:triggered',
+  MidiFilesDropped: 'midi:filesDropped',
 } as const;
 
 export type AppEventName = (typeof AppEvents)[keyof typeof AppEvents];

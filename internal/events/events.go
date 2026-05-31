@@ -2,6 +2,7 @@ package events
 
 import (
 	"YyslsPlayer/internal/services/hotkey"
+	"YyslsPlayer/internal/services/midi"
 	"YyslsPlayer/internal/services/player"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -14,4 +15,5 @@ func Register() {
 	application.RegisterEvent[player.PlayerPositionDTO](player.EventPosition)
 	application.RegisterEvent[player.PlayerErrorDTO](player.EventError)
 	application.RegisterEvent[hotkey.TriggeredDTO](hotkey.EventTriggered)
+	application.RegisterEvent[midi.FilesDroppedDTO](midi.EventFilesDropped)
 }

@@ -11,6 +11,14 @@ export const shortcutsEnUS: Messages = {
       error: 'Operation failed: {{message}}',
       actions: {
         reset: 'Restore default shortcuts',
+        'previous-track': {
+          label: 'Previous MIDI',
+          description: 'Switch to the previous MIDI in the current library search and sort order.',
+        },
+        'next-track': {
+          label: 'Next MIDI',
+          description: 'Switch to the next MIDI in the current library search and sort order.',
+        },
         'play-pause': {
           label: 'Play / Pause',
           description: 'Pause while playing, resume while paused. Start from the performance panel when idle.',

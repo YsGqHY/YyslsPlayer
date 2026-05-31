@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"YyslsPlayer/internal/storage"
 )
@@ -20,6 +22,11 @@ const (
 
 	importReasonDuplicateInLibrary = "duplicate_in_library"
 	importReasonDuplicateInBatch   = "duplicate_in_batch"
+
+	projectBatchStatusDeleted = "deleted"
+	projectBatchStatusFailed  = "failed"
+
+	maxImportWorkers = 16
 )
 
 type Service struct {
@@ -51,6 +58,7 @@ type MidiProjectSummary struct {
 	ChannelCount     int    `json:"channelCount"`
 	DurationMs       int64  `json:"durationMs"`
 	NoteCount        int    `json:"noteCount"`
+	FileSizeBytes    int64  `json:"fileSizeBytes"`
 	DefaultProfileID *uint  `json:"defaultProfileId"`
 	CreatedAt        int64  `json:"createdAt"`
 	UpdatedAt        int64  `json:"updatedAt"`
@@ -129,6 +137,29 @@ type ImportBatchResult struct {
 	Items                  []ImportBatchItem `json:"items"`
 }
 
+type ProjectBatchManageItem struct {
+	ProjectID   uint   `json:"projectId"`
+	DisplayName string `json:"displayName"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason"`
+	Error       string `json:"error"`
+}
+
+type ProjectBatchManageResult struct {
+	TotalCount   int                      `json:"totalCount"`
+	DeletedCount int                      `json:"deletedCount"`
+	FailedCount  int                      `json:"failedCount"`
+	Items        []ProjectBatchManageItem `json:"items"`
+}
+
+type preparedImport struct {
+	Index int
+	Path  string
+	File  midiFileData
+	Input storage.ProjectImportData
+	Err   error
+}
+
 func (s *Service) ImportFile(ctx context.Context, path string) (MidiProjectDetail, error) {
 	item, err := s.importOne(ctx, path, nil)
 	if err != nil {
@@ -153,6 +184,20 @@ func (s *Service) ImportDirectory(ctx context.Context, dir string) (ImportBatchR
 		return ImportBatchResult{}, err
 	}
 	return s.importMany(ctx, paths), nil
+}
+
+// ImportPaths 接收拖拽进来的原始路径集合（可能混含文件与文件夹）。
+// 文件夹会递归展开为其中的 MIDI 文件，非 MIDI 文件按导入失败逐项上报，
+// 最终复用 importMany 的去重与批量导入逻辑。
+func (s *Service) ImportPaths(ctx context.Context, paths []string) (ImportBatchResult, error) {
+	files, err := expandDroppedPaths(paths)
+	if err != nil {
+		return ImportBatchResult{}, err
+	}
+	if len(files) == 0 {
+		return ImportBatchResult{}, ErrMidiFileNotFound
+	}
+	return s.importMany(ctx, files), nil
 }
 
 func (s *Service) ListProjects(_ context.Context, req ListProjectsRequest) ([]MidiProjectSummary, error) {
@@ -313,11 +358,46 @@ func (s *Service) ResetDefaultProfile(_ context.Context) (MidiProfileDTO, error)
 	return profileDTO(saved), nil
 }
 
-func (s *Service) DeleteProject(_ context.Context, projectID uint) error {
+func (s *Service) DeleteProject(ctx context.Context, projectID uint) error {
 	if projectID == 0 {
 		return errors.New("projectID required")
 	}
-	return s.store().DeleteProject(projectID)
+	result, err := s.DeleteProjects(ctx, []uint{projectID})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount != 1 {
+		return errors.New("project not found")
+	}
+	return nil
+}
+
+func (s *Service) DeleteProjects(_ context.Context, projectIDs []uint) (ProjectBatchManageResult, error) {
+	if len(projectIDs) == 0 {
+		return ProjectBatchManageResult{}, errors.New("projectIDs required")
+	}
+	rows, err := s.store().DeleteProjectsBatch(projectIDs)
+	if err != nil {
+		return ProjectBatchManageResult{}, err
+	}
+	result := ProjectBatchManageResult{TotalCount: len(projectIDs), Items: make([]ProjectBatchManageItem, 0, len(rows))}
+	for _, row := range rows {
+		item := ProjectBatchManageItem{ProjectID: row.ProjectID}
+		if row.Project.ID != 0 {
+			item.DisplayName = row.Project.DisplayName
+		}
+		if row.Deleted {
+			item.Status = projectBatchStatusDeleted
+			result.DeletedCount++
+		} else {
+			item.Status = projectBatchStatusFailed
+			item.Reason = row.Reason
+			item.Error = row.Reason
+			result.FailedCount++
+		}
+		result.Items = append(result.Items, item)
+	}
+	return result, nil
 }
 
 func (s *Service) GetDefaultKeymap(_ context.Context) (KeymapProfileDTO, error) {
@@ -325,13 +405,105 @@ func (s *Service) GetDefaultKeymap(_ context.Context) (KeymapProfileDTO, error) 
 }
 
 func (s *Service) importMany(ctx context.Context, paths []string) ImportBatchResult {
-	result := ImportBatchResult{TotalCount: len(paths), Items: make([]ImportBatchItem, 0, len(paths))}
-	seenHashes := make(map[string]uint)
-	for _, path := range paths {
-		item, err := s.importOne(ctx, path, seenHashes)
-		if err != nil {
-			item = ImportBatchItem{Path: strings.TrimSpace(path), FileName: filepath.Base(strings.TrimSpace(path)), Status: importStatusFailed, Error: err.Error()}
+	store := s.store()
+	prepared := prepareImportsConcurrently(ctx, paths)
+	items := make([]ImportBatchItem, len(paths))
+	pending := make([]preparedImport, 0, len(paths))
+	existingByHash := store.ProjectHashIndex()
+	seenHashes := make(map[string]uint, len(paths))
+
+	for i, prep := range prepared {
+		if prep.Err != nil {
+			trimmed := strings.TrimSpace(prep.Path)
+			items[i] = ImportBatchItem{Path: trimmed, FileName: filepath.Base(trimmed), Status: importStatusFailed, Error: prep.Err.Error()}
+			continue
 		}
+
+		item := ImportBatchItem{Path: prep.File.Path, FileName: prep.File.Name, FileHash: prep.File.FileHash}
+		if projectID, ok := seenHashes[prep.File.FileHash]; ok {
+			item.Status = importStatusSkipped
+			item.Reason = importReasonDuplicateInBatch
+			if projectID != 0 {
+				item.ProjectID = &projectID
+			}
+			items[i] = item
+			continue
+		}
+		if existing, ok := existingByHash[prep.File.FileHash]; ok {
+			item.Status = importStatusSkipped
+			item.Reason = importReasonDuplicateInLibrary
+			item.ProjectID = &existing.ID
+			item.DisplayName = existing.DisplayName
+			seenHashes[prep.File.FileHash] = existing.ID
+			items[i] = item
+			continue
+		}
+
+		seenHashes[prep.File.FileHash] = 0
+		pending = append(pending, prep)
+		items[i] = item
+	}
+
+	if len(pending) > 0 {
+		inputs := make([]storage.ProjectImportData, len(pending))
+		pendingHashes := make(map[string]struct{}, len(pending))
+		for i, prep := range pending {
+			inputs[i] = prep.Input
+			pendingHashes[prep.File.FileHash] = struct{}{}
+		}
+		batchResults, err := store.ImportProjectsBatch(inputs)
+		if err != nil {
+			for _, prep := range pending {
+				items[prep.Index].Status = importStatusFailed
+				items[prep.Index].Error = err.Error()
+			}
+			for i := range items {
+				if items[i].Status == importStatusSkipped && items[i].Reason == importReasonDuplicateInBatch {
+					if _, ok := pendingHashes[items[i].FileHash]; ok {
+						items[i].Status = importStatusFailed
+						items[i].Reason = ""
+						items[i].Error = err.Error()
+					}
+				}
+			}
+		} else {
+			for i, batchItem := range batchResults {
+				prep := pending[i]
+				item := items[prep.Index]
+				project := batchItem.Project
+				if project.ID != 0 {
+					item.ProjectID = &project.ID
+					item.DisplayName = project.DisplayName
+					seenHashes[prep.File.FileHash] = project.ID
+				}
+				switch batchItem.Status {
+				case storage.ProjectBatchImportStatusImported:
+					item.Status = importStatusImported
+				case storage.ProjectBatchImportStatusSkipped:
+					item.Status = importStatusSkipped
+					item.Reason = batchItem.Reason
+					if item.Reason == "" {
+						item.Reason = importReasonDuplicateInLibrary
+					}
+				default:
+					item.Status = importStatusFailed
+					item.Error = "unknown batch import status"
+				}
+				items[prep.Index] = item
+			}
+			for i := range items {
+				if items[i].Status != importStatusSkipped || items[i].Reason != importReasonDuplicateInBatch || items[i].ProjectID != nil {
+					continue
+				}
+				if projectID := seenHashes[items[i].FileHash]; projectID != 0 {
+					items[i].ProjectID = &projectID
+				}
+			}
+		}
+	}
+
+	result := ImportBatchResult{TotalCount: len(paths), Items: make([]ImportBatchItem, 0, len(paths))}
+	for _, item := range items {
 		result.addItem(item)
 	}
 	return result
@@ -377,12 +549,97 @@ func (s *Service) importOne(_ context.Context, path string, seenHashes map[strin
 }
 
 func importNewMidiProject(store *storage.Store, file midiFileData) (storage.MidiProject, error) {
-	score, err := parseNormalizedScore(file.Bytes)
+	input, err := buildProjectImportData(file)
 	if err != nil {
 		return storage.MidiProject{}, err
 	}
-	project := storage.MidiProject{DisplayName: fileNameWithoutExt(file.Name), FileName: file.Name, SourcePath: &file.Path, FileHash: file.FileHash, PPQ: score.PPQ, TrackCount: score.TrackCount, ChannelCount: score.ChannelCount, DurationMs: score.DurationMs, NoteCount: len(score.Events)}
-	return store.ImportProject(storage.ProjectImportData{Project: project, Events: score.Events})
+	return store.ImportProject(input)
+}
+
+func prepareImportsConcurrently(ctx context.Context, paths []string) []preparedImport {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	results := make([]preparedImport, len(paths))
+	if len(paths) == 0 {
+		return results
+	}
+	workerCount := importWorkerCount(len(paths))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				path := paths[idx]
+				prep := preparedImport{Index: idx, Path: path}
+				if ctx.Err() != nil {
+					prep.Err = ctx.Err()
+					results[idx] = prep
+					continue
+				}
+				file, err := readMidiFile(path)
+				if err != nil {
+					prep.Err = err
+					results[idx] = prep
+					continue
+				}
+				input, err := buildProjectImportData(file)
+				prep.File = file
+				prep.Input = input
+				prep.Err = err
+				results[idx] = prep
+			}
+		}()
+	}
+	for i := range paths {
+		if ctx.Err() != nil {
+			results[i] = preparedImport{Index: i, Path: paths[i], Err: ctx.Err()}
+			continue
+		}
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	return results
+}
+
+func importWorkerCount(total int) int {
+	if total <= 1 {
+		return 1
+	}
+	workers := runtime.NumCPU() * 2
+	if workers < 2 {
+		workers = 2
+	}
+	if workers > maxImportWorkers {
+		workers = maxImportWorkers
+	}
+	if workers > total {
+		workers = total
+	}
+	return workers
+}
+
+func buildProjectImportData(file midiFileData) (storage.ProjectImportData, error) {
+	score, err := parseNormalizedScore(file.Bytes)
+	if err != nil {
+		return storage.ProjectImportData{}, err
+	}
+	project := storage.MidiProject{
+		DisplayName:   fileNameWithoutExt(file.Name),
+		FileName:      file.Name,
+		SourcePath:    &file.Path,
+		FileHash:      file.FileHash,
+		PPQ:           score.PPQ,
+		TrackCount:    score.TrackCount,
+		ChannelCount:  score.ChannelCount,
+		DurationMs:    score.DurationMs,
+		NoteCount:     len(score.Events),
+		FileSizeBytes: file.Size,
+	}
+	return storage.ProjectImportData{Project: project, Events: score.Events}, nil
 }
 
 func (r *ImportBatchResult) addItem(item ImportBatchItem) {
@@ -476,7 +733,22 @@ func projectSummary(row storage.MidiProject) MidiProjectSummary {
 	if row.SourcePath != nil {
 		sourcePath = *row.SourcePath
 	}
-	return MidiProjectSummary{ID: row.ID, DisplayName: row.DisplayName, FileName: row.FileName, SourcePath: sourcePath, FileHash: row.FileHash, PPQ: row.PPQ, TrackCount: row.TrackCount, ChannelCount: row.ChannelCount, DurationMs: row.DurationMs, NoteCount: row.NoteCount, DefaultProfileID: row.DefaultProfileID, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return MidiProjectSummary{
+		ID:               row.ID,
+		DisplayName:      row.DisplayName,
+		FileName:         row.FileName,
+		SourcePath:       sourcePath,
+		FileHash:         row.FileHash,
+		PPQ:              row.PPQ,
+		TrackCount:       row.TrackCount,
+		ChannelCount:     row.ChannelCount,
+		DurationMs:       row.DurationMs,
+		NoteCount:        row.NoteCount,
+		FileSizeBytes:    row.FileSizeBytes,
+		DefaultProfileID: row.DefaultProfileID,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+	}
 }
 
 func profileDTO(row storage.MidiProfile) MidiProfileDTO {

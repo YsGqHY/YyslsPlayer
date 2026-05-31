@@ -1,14 +1,25 @@
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
+import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
+import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import DriveFolderUploadRoundedIcon from '@mui/icons-material/DriveFolderUploadRounded';
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import GraphicEqRoundedIcon from '@mui/icons-material/GraphicEqRounded';
+import LibraryAddCheckRoundedIcon from '@mui/icons-material/LibraryAddCheckRounded';
 import KeyboardRoundedIcon from '@mui/icons-material/KeyboardRounded';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
+import PlaylistAddRoundedIcon from '@mui/icons-material/PlaylistAddRounded';
+import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded';
+import PlaylistPlayRoundedIcon from '@mui/icons-material/PlaylistPlayRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import SelectAllRoundedIcon from '@mui/icons-material/SelectAllRounded';
+import ShuffleRoundedIcon from '@mui/icons-material/ShuffleRounded';
 import SpeedRoundedIcon from '@mui/icons-material/SpeedRounded';
+import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import {
   Box,
@@ -18,10 +29,12 @@ import {
   MenuItem,
   Select,
   TextField,
+  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { SxProps, Theme } from '@mui/material/styles';
 import { PerformPanel } from '@/components/PerformPanel';
 import { PianoRollView } from '@/components/PianoRollView';
@@ -29,9 +42,9 @@ import { PreviewPanel } from '@/components/PreviewPanel';
 import { QualityReportPanel } from '@/components/QualityReportPanel';
 import { useT } from '@/i18n';
 import { useRouter } from '@/router';
-import { EditorSelectionService, type MidiProfile, type MidiProjectSummary, type OutOfRangePolicy, type QualityReport } from '@/services';
+import { EditorSelectionService, MidiService, NativeDialogs, type MidiProfile, type MidiProjectSummary, type OutOfRangePolicy, type QualityReport } from '@/services';
 import { libraryPageStyles } from './LibraryPage.styles';
-import { useLibraryPage, type LibraryPanel, type LibraryProfileForm } from './useLibraryPage';
+import { useLibraryPage, type LibraryPanel, type LibraryProfileForm, type LibrarySortValue, type PlaylistMode } from './useLibraryPage';
 
 export const LibraryPage = () => {
   const theme = useTheme();
@@ -42,6 +55,8 @@ export const LibraryPage = () => {
   const selectedProject = vm.selected?.project ?? null;
   const selectedReport = vm.previewPlan?.report ?? vm.selected?.qualityReport ?? null;
   const profiles = vm.selected ? uniqueProfiles(vm.selected.defaultProfile, vm.selected.profiles) : [];
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
 
   const openImportedProject = (projectId: number | null): void => {
     if (projectId && vm.autoOpenImportedProject) {
@@ -60,6 +75,85 @@ export const LibraryPage = () => {
     openImportedProject(projectId);
   };
 
+  // 文件拖放：真实路径只能由后端经 WindowFilesDropped 事件下发（浏览器拿不到本地路径）。
+  // 这里订阅后端推送的路径并交给 ViewModel 导入，导入后按偏好自动打开项目。
+  useEffect(() => {
+    const off = MidiService.onFilesDropped((paths) => {
+      void vm.importDroppedPaths(paths).then(openImportedProject);
+    });
+    return off;
+    // openImportedProject 依赖 vm/ router，稳定性由 vm 内部 useCallback 保证；这里只需在挂载时订阅一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vm.importDroppedPaths, vm.autoOpenImportedProject]);
+
+  // 下列 drag 处理器只维护高亮覆盖层的显隐；真正的文件路径解析与导入由 Wails 后端链路完成。
+  // 用 dragenter/dragleave 计数避免子元素间移动导致的闪烁。
+  const isFileDrag = (event: DragEvent<HTMLDivElement>): boolean =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files');
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>): void => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    if (!isFileDrag(event)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+  };
+
+  const confirmDeleteProject = async (project: MidiProjectSummary): Promise<void> => {
+    const confirmed = await NativeDialogs.confirm({
+      title: t('library.batch.deleteOneTitle'),
+      message: t('library.batch.deleteOneMessage', { name: project.displayName }),
+      okLabel: t('library.batch.deleteConfirm'),
+      cancelLabel: t('library.batch.cancel'),
+    });
+    if (confirmed) {
+      await vm.deleteProject(project.id);
+    }
+  };
+
+  const confirmDeleteSelected = async (): Promise<void> => {
+    if (vm.selectedCount === 0) return;
+    const confirmed = await NativeDialogs.confirm({
+      title: t('library.batch.deleteSelectedTitle'),
+      message: t('library.batch.deleteSelectedMessage', { count: String(vm.selectedCount) }),
+      okLabel: t('library.batch.deleteConfirm'),
+      cancelLabel: t('library.batch.cancel'),
+    });
+    if (confirmed) {
+      await vm.deleteSelectedProjects();
+    }
+  };
+
+  const sortItems: Array<{ value: LibrarySortValue; label: string }> = [
+    { value: 'createdAt:asc', label: t('library.sort.addedAsc') },
+    { value: 'createdAt:desc', label: t('library.sort.addedDesc') },
+    { value: 'fileName:asc', label: t('library.sort.fileNameAsc') },
+    { value: 'fileName:desc', label: t('library.sort.fileNameDesc') },
+    { value: 'durationMs:asc', label: t('library.sort.durationAsc') },
+    { value: 'durationMs:desc', label: t('library.sort.durationDesc') },
+    { value: 'fileSizeBytes:asc', label: t('library.sort.fileSizeAsc') },
+    { value: 'fileSizeBytes:desc', label: t('library.sort.fileSizeDesc') },
+  ];
+
   const panelItems: Array<{ id: LibraryPanel; label: string; description: string }> = [
     { id: 'perform', label: t('library.panels.perform.label'), description: t('library.panels.perform.description') },
     { id: 'overview', label: t('library.panels.overview.label'), description: t('library.panels.overview.description') },
@@ -67,13 +161,45 @@ export const LibraryPage = () => {
     { id: 'preview', label: t('library.panels.preview.label'), description: t('library.panels.preview.description') },
   ];
 
+  const playlistModes: Array<{ id: PlaylistMode; label: string; icon: ReactNode }> = [
+    { id: 'shuffle', label: t('library.playlist.modes.shuffle'), icon: <ShuffleRoundedIcon fontSize="small" /> },
+    { id: 'sequence', label: t('library.playlist.modes.sequence'), icon: <PlaylistPlayRoundedIcon fontSize="small" /> },
+    { id: 'loop', label: t('library.playlist.modes.loop'), icon: <SyncRoundedIcon fontSize="small" /> },
+    { id: 'singleLoop', label: t('library.playlist.modes.singleLoop'), icon: <RestartAltRoundedIcon fontSize="small" /> },
+  ];
+
   return (
     <Box sx={styles.root}>
       <Box sx={styles.workspace}>
-        <Box sx={styles.libraryColumn}>
+        <Box
+          sx={styles.libraryColumn}
+          data-file-drop-target=""
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {dragActive && (
+            <Box sx={styles.dropOverlay}>
+              <FileUploadRoundedIcon fontSize="large" />
+              <Typography sx={styles.dropOverlayTitle}>{t('library.drop.title')}</Typography>
+              <Typography sx={styles.dropOverlayText}>{t('library.drop.hint')}</Typography>
+            </Box>
+          )}
           <Box sx={styles.brandBlock}>
-            <Typography sx={styles.eyebrow}>{t('library.eyebrow')}</Typography>
-            <Typography component="h1" sx={styles.title}>{t('library.title')}</Typography>
+            <Box sx={styles.brandHeaderRow}>
+              <Box sx={styles.brandTitleBlock}>
+                <Typography sx={styles.eyebrow}>{t('library.eyebrow')}</Typography>
+                <Typography component="h1" sx={styles.title}>{t('library.title')}</Typography>
+              </Box>
+              <IconButton
+                aria-label={t('library.playlist.toggle')}
+                sx={vm.playlistOpen ? styles.playlistToggleActive : styles.playlistToggle}
+                onClick={vm.togglePlaylist}
+              >
+                <PlaylistPlayRoundedIcon />
+              </IconButton>
+            </Box>
           </Box>
 
           <Box sx={styles.libraryTools}>
@@ -121,8 +247,79 @@ export const LibraryPage = () => {
                 total: String(vm.projects.length),
               })}</Typography>
             </Box>
-            <Typography sx={styles.pill}>{t('library.list.count', { count: String(vm.projects.length) })}</Typography>
+            <Box sx={styles.listHeaderActions}>
+              <Select
+                value={vm.sortValue}
+                onChange={(event) => vm.setSortValue(event.target.value as LibrarySortValue)}
+                size="small"
+                sx={styles.sortSelect}
+                displayEmpty
+                aria-label={t('library.sort.label')}
+              >
+                {sortItems.map((item) => (
+                  <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
+                ))}
+              </Select>
+              <Button
+                variant={vm.selectionMode ? 'contained' : 'outlined'}
+                size="small"
+                startIcon={<LibraryAddCheckRoundedIcon />}
+                onClick={() => {
+                  if (vm.selectionMode) {
+                    vm.exitSelectionMode();
+                    return;
+                  }
+                  vm.enterSelectionMode();
+                }}
+                disabled={vm.batchDeleting || (!vm.selectionMode && (vm.projects.length === 0 || vm.importing))}
+              >
+                {vm.selectionMode ? t('library.batch.exit') : t('library.batch.enter')}
+              </Button>
+            </Box>
           </Box>
+
+          {vm.selectionMode && (
+            <Box sx={styles.batchToolbar}>
+              <Box sx={styles.batchInfo}>
+                <Typography sx={styles.batchTitle}>{t('library.batch.title')}</Typography>
+                <Typography sx={styles.panelSubtle}>{t('library.batch.selected', { count: String(vm.selectedCount) })}</Typography>
+              </Box>
+              <Box sx={styles.batchActions}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={vm.allFilteredSelected ? <DoneAllRoundedIcon /> : <SelectAllRoundedIcon />}
+                  onClick={() => {
+                    vm.selectAllFilteredProjects();
+                  }}
+                  disabled={vm.filteredProjects.length === 0 || vm.allFilteredSelected || vm.batchDeleting}
+                >
+                  {vm.allFilteredSelected ? t('library.batch.selectedAll') : t('library.batch.selectFiltered')}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ClearRoundedIcon />}
+                  onClick={() => {
+                    vm.clearProjectSelection();
+                  }}
+                  disabled={vm.selectedCount === 0 || vm.batchDeleting}
+                >
+                  {t('library.batch.clearSelection')}
+                </Button>
+                <Button
+                  variant="contained"
+                  size="small"
+                  sx={styles.dangerButton}
+                  startIcon={<DeleteRoundedIcon />}
+                  onClick={() => void confirmDeleteSelected()}
+                  disabled={vm.selectedCount === 0 || vm.batchDeleting}
+                >
+                  {vm.batchDeleting ? t('library.batch.deleting') : t('library.batch.deleteSelected')}
+                </Button>
+              </Box>
+            </Box>
+          )}
 
           {vm.error && <Box sx={styles.error}>{t('library.errors.prefix')}{vm.error}</Box>}
           {vm.importError && <Box sx={styles.error}>{t('library.errors.importPrefix')}{vm.importError}</Box>}
@@ -133,6 +330,15 @@ export const LibraryPage = () => {
                 skipped: String(vm.importSummary.skippedCount),
                 failed: String(vm.importSummary.failedCount),
                 total: String(vm.importSummary.totalCount),
+              })}
+            </Box>
+          )}
+          {vm.batchResult && (
+            <Box sx={vm.batchResult.failedCount > 0 ? styles.error : styles.hint}>
+              {t('library.batch.result', {
+                deleted: String(vm.batchResult.deletedCount),
+                failed: String(vm.batchResult.failedCount),
+                total: String(vm.batchResult.totalCount),
               })}
             </Box>
           )}
@@ -152,8 +358,16 @@ export const LibraryPage = () => {
                   report={vm.selected?.project.id === project.id ? selectedReport : null}
                   active={vm.selected?.project.id === project.id}
                   deleting={vm.deletingId === project.id}
+                  selectionMode={vm.selectionMode}
+                  selected={vm.selectedProjectIds.includes(project.id)}
+                  queued={vm.playlistItems.some((item) => item.project.id === project.id)}
                   onSelect={() => void vm.selectProject(project.id)}
-                  onDelete={() => void vm.deleteProject(project.id)}
+                  onToggleSelect={() => {
+                    vm.toggleProjectSelection(project.id);
+                  }}
+                  onPlayNext={() => vm.addProjectNextInPlaylist(project)}
+                  onAddToPlaylist={() => vm.addProjectToPlaylist(project)}
+                  onDelete={() => void confirmDeleteProject(project)}
                 />
               ))}
             </Box>
@@ -161,6 +375,14 @@ export const LibraryPage = () => {
         </Box>
 
         <Box sx={styles.detailColumn}>
+          {vm.playlistOpen ? (
+            <PlaylistPanel
+              modes={playlistModes}
+              selectedProject={selectedProject}
+              vm={vm}
+            />
+          ) : (
+            <>
           <Box sx={styles.detailHero}>
             {selectedProject ? (
               <>
@@ -248,7 +470,166 @@ export const LibraryPage = () => {
               )}
             </Box>
           )}
+            </>
+          )}
         </Box>
+      </Box>
+    </Box>
+  );
+};
+
+type LibraryPageVM = ReturnType<typeof useLibraryPage>;
+
+interface PlaylistPanelProps {
+  modes: Array<{ id: PlaylistMode; label: string; icon: ReactNode }>;
+  selectedProject: MidiProjectSummary | null;
+  vm: LibraryPageVM;
+}
+
+const PlaylistPanel = ({ modes, selectedProject, vm }: PlaylistPanelProps) => {
+  const theme = useTheme();
+  const styles = libraryPageStyles(theme);
+  const t = useT();
+
+  return (
+    <Box sx={styles.playlistPanel}>
+      <Box sx={styles.playlistHero}>
+        <Box sx={styles.playlistHeroText}>
+          <Typography sx={styles.eyebrow}>{t('library.playlist.eyebrow')}</Typography>
+          <Typography component="h2" sx={styles.detailTitle}>{t('library.playlist.title')}</Typography>
+          <Typography sx={styles.detailMeta}>{t('library.playlist.subtitle', { count: String(vm.playlistItems.length) })}</Typography>
+        </Box>
+        <Box sx={styles.playlistHeroActions}>
+          <Button variant="outlined" size="small" startIcon={<AddRoundedIcon />} onClick={vm.addSelectedProjectToPlaylist} disabled={!selectedProject}>
+            {t('library.playlist.addCurrent')}
+          </Button>
+          <Button variant="outlined" size="small" startIcon={<SelectAllRoundedIcon />} onClick={vm.addFilteredProjectsToPlaylist} disabled={vm.filteredProjects.length === 0}>
+            {t('library.playlist.addFiltered')}
+          </Button>
+          <Button variant="outlined" size="small" startIcon={<ClearRoundedIcon />} onClick={vm.clearPlaylist} disabled={vm.playlistItems.length === 0}>
+            {t('library.playlist.clear')}
+          </Button>
+        </Box>
+      </Box>
+
+      <Box sx={styles.playlistToolbar}>
+        <Box sx={styles.playlistModeGroup}>
+          {modes.map((mode) => (
+            <Box
+              key={mode.id}
+              component="button"
+              type="button"
+              sx={vm.playlistMode === mode.id ? styles.playlistModeActive : styles.playlistMode}
+              onClick={() => vm.setPlaylistMode(mode.id)}
+            >
+              {mode.icon}
+              <span>{mode.label}</span>
+            </Box>
+          ))}
+        </Box>
+        <Typography sx={styles.panelSubtle}>{t('library.playlist.dragHint')}</Typography>
+      </Box>
+
+      {vm.playlistItems.length === 0 ? (
+        <Box sx={styles.playlistEmpty}>
+          <PlaylistPlayRoundedIcon fontSize="large" />
+          <Typography sx={styles.emptyTitle}>{t('library.playlist.emptyTitle')}</Typography>
+          <Typography sx={styles.emptyText}>{t('library.playlist.emptyText')}</Typography>
+        </Box>
+      ) : (
+        <Box sx={styles.playlistList}>
+          {vm.playlistItems.map((item, index) => (
+            <PlaylistRow
+              key={item.project.id}
+              index={index}
+              item={item.project}
+              active={vm.playlistCurrentIndex === index}
+              dragging={vm.playlistDraggingIndex === index}
+              onSelect={() => void vm.selectPlaylistItem(index)}
+              onPlay={() => void vm.playPlaylistItem(index)}
+              onRemove={() => vm.removePlaylistItem(item.project.id)}
+              onDragStart={() => vm.startPlaylistDrag(index)}
+              onDragEnd={vm.finishPlaylistDrag}
+              onDragOver={(targetIndex) => vm.movePlaylistItem(vm.playlistDraggingIndex ?? targetIndex, targetIndex)}
+            />
+          ))}
+        </Box>
+      )}
+
+      <Box sx={styles.panelBody}>
+        <PerformPanel
+          plan={vm.previewPlan}
+          loading={vm.previewLoading}
+          error={vm.previewError}
+          autoStartToken={vm.playlistAutoStartToken}
+          onPlayerState={vm.handlePlayerState}
+          onStart={vm.markPlaylistStarted}
+        />
+      </Box>
+    </Box>
+  );
+};
+
+interface PlaylistRowProps {
+  index: number;
+  item: MidiProjectSummary;
+  active: boolean;
+  dragging: boolean;
+  onSelect: () => void;
+  onPlay: () => void;
+  onRemove: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: (targetIndex: number) => void;
+}
+
+const PlaylistRow = ({ index, item, active, dragging, onSelect, onPlay, onRemove, onDragStart, onDragEnd, onDragOver }: PlaylistRowProps) => {
+  const theme = useTheme();
+  const styles = libraryPageStyles(theme);
+  const t = useT();
+  const rowSx = (active || dragging ? [styles.playlistRow, active ? styles.playlistRowActive : null, dragging ? styles.playlistRowDragging : null].filter(Boolean) : styles.playlistRow) as SxProps<Theme>;
+
+  const handleDragStart = (event: DragEvent<HTMLDivElement>): void => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+    onDragStart();
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    onDragOver(index);
+  };
+
+  const handleRemove = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation();
+    onRemove();
+  };
+
+  const handlePlay = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation();
+    onPlay();
+  };
+
+  return (
+    <Box sx={rowSx} draggable onDragStart={handleDragStart} onDragEnd={onDragEnd} onDragOver={handleDragOver} onDrop={(event) => event.preventDefault()} onClick={onSelect}>
+      <Box sx={styles.playlistDragHandle}><DragIndicatorRoundedIcon fontSize="small" /></Box>
+      <Box sx={styles.playlistIndex}>{(index + 1).toString().padStart(2, '0')}</Box>
+      <Box sx={styles.playlistRowMain}>
+        <Typography sx={styles.trackTitle}>{item.displayName}</Typography>
+        <Box sx={styles.trackMeta}>
+          <span>{formatDuration(item.durationMs)}</span>
+          <span>{t('library.item.notes', { count: String(item.noteCount) })}</span>
+          <span>{t('library.item.trackChannel', { tracks: String(item.trackCount), channels: String(item.channelCount) })}</span>
+        </Box>
+      </Box>
+      <Box sx={styles.playlistRowActions}>
+        <Button variant={active ? 'contained' : 'outlined'} size="small" startIcon={<PlaylistPlayRoundedIcon />} onClick={handlePlay}>
+          {active ? t('library.playlist.playCurrent') : t('library.playlist.play')}
+        </Button>
+        <IconButton aria-label={t('library.playlist.remove')} size="small" onClick={handleRemove}>
+          <DeleteRoundedIcon fontSize="small" />
+        </IconButton>
       </Box>
     </Box>
   );
@@ -260,24 +641,53 @@ interface ProjectItemProps {
   report: QualityReport | null;
   active: boolean;
   deleting: boolean;
+  selectionMode: boolean;
+  selected: boolean;
+  queued: boolean;
   onSelect: () => void;
+  onToggleSelect: () => void;
+  onPlayNext: () => void;
+  onAddToPlaylist: () => void;
   onDelete: () => void;
 }
 
-const ProjectItem = ({ index, project, report, active, deleting, onSelect, onDelete }: ProjectItemProps) => {
+const ProjectItem = ({ index, project, report, active, deleting, selectionMode, selected, queued, onSelect, onToggleSelect, onPlayNext, onAddToPlaylist, onDelete }: ProjectItemProps) => {
   const theme = useTheme();
   const styles = libraryPageStyles(theme);
   const t = useT();
-  const itemSx = (active ? [styles.trackItem, styles.trackItemActive] : styles.trackItem) as SxProps<Theme>;
+  const itemSx = (active || selected ? [styles.trackItem, active ? styles.trackItemActive : null, selected ? styles.trackItemSelected : null].filter(Boolean) : styles.trackItem) as SxProps<Theme>;
 
-  const onDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const onDeleteClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onDelete();
   };
 
+  const onPlayNextClick = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation();
+    onPlayNext();
+  };
+
+  const onAddToPlaylistClick = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation();
+    onAddToPlaylist();
+  };
+
+  const onItemClick = (): void => {
+    if (selectionMode) {
+      onToggleSelect();
+      return;
+    }
+    onSelect();
+  };
+
+  const onCheckboxClick = (event: MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation();
+    onToggleSelect();
+  };
+
   return (
-    <Box component="button" type="button" sx={itemSx} onClick={onSelect}>
-      <Box sx={styles.trackIndex}>{index.toString().padStart(2, '0')}</Box>
+    <Box component="button" type="button" sx={itemSx} onClick={onItemClick}>
+      <Box sx={styles.trackIndex}>{selectionMode ? <Checkbox checked={selected} size="small" tabIndex={-1} onClick={onCheckboxClick} /> : index.toString().padStart(2, '0')}</Box>
       <Box sx={styles.trackMain}>
         <Typography sx={styles.trackTitle}>{project.displayName}</Typography>
         <Box sx={styles.trackMeta}>
@@ -288,9 +698,31 @@ const ProjectItem = ({ index, project, report, active, deleting, onSelect, onDel
       </Box>
       <Box sx={styles.trackAside}>
         <Typography sx={styles.trackRatio}>{report ? formatPercent(report.playableRatio) : t('library.item.notLoaded')}</Typography>
-        <IconButton aria-label={t('library.actions.delete')} size="small" onClick={onDeleteClick} disabled={deleting}>
-          <DeleteRoundedIcon fontSize="small" />
-        </IconButton>
+        {!selectionMode && (
+          <Box sx={styles.trackItemActions}>
+            <Tooltip title={t('library.playlist.playNext')} placement="top" arrow>
+              <Box component="span" sx={styles.trackActionTooltipTarget}>
+                <IconButton aria-label={t('library.playlist.playNext')} size="small" onClick={onPlayNextClick}>
+                  <PlaylistAddCheckRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            </Tooltip>
+            <Tooltip title={t('library.playlist.addToPlaylist')} placement="top" arrow>
+              <Box component="span" sx={styles.trackActionTooltipTarget}>
+                <IconButton aria-label={t('library.playlist.addToPlaylist')} size="small" onClick={onAddToPlaylistClick} disabled={queued}>
+                  <PlaylistAddRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            </Tooltip>
+            <Tooltip title={t('library.actions.deleteFromLibrary')} placement="top" arrow>
+              <Box component="span" sx={styles.trackActionTooltipTarget}>
+                <IconButton aria-label={t('library.actions.deleteFromLibrary')} size="small" onClick={onDeleteClick} disabled={deleting}>
+                  <DeleteRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            </Tooltip>
+          </Box>
+        )}
       </Box>
     </Box>
   );

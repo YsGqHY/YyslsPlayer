@@ -123,3 +123,50 @@ func isMidiExtension(name string) bool {
 		return false
 	}
 }
+
+// expandDroppedPaths 把拖入的原始路径集合展开为可导入的 MIDI 文件路径列表：
+//   - 目录递归展开为其中的 MIDI 文件
+//   - 普通 MIDI 文件原样保留
+//   - 非 MIDI 文件原样保留（交由后续 readMidiFile 报具体失败原因，便于前端逐项反馈）
+//
+// 返回结果去重并保持去重后的稳定顺序。空白路径会被忽略。
+func expandDroppedPaths(paths []string) ([]string, error) {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	appendPath := func(p string) {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		if _, ok := seen[abs]; ok {
+			return
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+
+	for _, raw := range paths {
+		cleaned := strings.TrimSpace(raw)
+		if cleaned == "" {
+			continue
+		}
+		info, err := os.Stat(cleaned)
+		if err != nil {
+			// 路径无法访问：原样保留，让导入阶段给出明确失败项。
+			appendPath(cleaned)
+			continue
+		}
+		if info.IsDir() {
+			dirFiles, err := findMidiFilesInDirectory(cleaned)
+			if err != nil {
+				return nil, err
+			}
+			for _, f := range dirFiles {
+				appendPath(f)
+			}
+			continue
+		}
+		appendPath(cleaned)
+	}
+	return out, nil
+}

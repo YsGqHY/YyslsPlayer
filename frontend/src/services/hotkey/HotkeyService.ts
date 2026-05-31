@@ -6,6 +6,8 @@ import { AppEvents, type WailsEventPayload } from '@/shared/events';
 
 // 动作 ID —— 与后端 internal/services/hotkey/types.go 对齐。
 export type HotkeyAction =
+  | 'previous-track'
+  | 'next-track'
   | 'play-pause'
   | 'stop'
   | 'preview-toggle'

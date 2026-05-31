@@ -8,7 +8,7 @@
 //   - SaveFile / OpenFile / Info / Warning / Error / Question 全部走 @wailsio/runtime
 //   - 把 PascalCase 字段名收口为本地的 camelCase API，对调用方更友好
 //   - 用户取消时统一返回 null（而不是空字符串），避免上层判空写 if (path === '')
-import { Dialogs } from '@wailsio/runtime';
+import { Dialogs, System } from '@wailsio/runtime';
 
 export interface FileFilter {
   displayName: string;
@@ -45,6 +45,23 @@ export interface ConfirmOptions {
 
 const mapFilters = (filters?: FileFilter[]) =>
   filters?.map((f) => ({ DisplayName: f.displayName, Pattern: f.pattern }));
+
+const normalizeDialogChoice = (choice: unknown): string => String(choice ?? '').trim().replace(/\(&?.+\)$/u, '').toLocaleLowerCase();
+
+const isNegativeChoice = (choice: unknown, cancelLabel: string): boolean => {
+  if (choice === false || choice === 1) return true;
+  const normalized = normalizeDialogChoice(choice);
+  const normalizedCancel = normalizeDialogChoice(cancelLabel);
+  return normalized === '' || normalized === normalizedCancel || ['1', 'false', 'no', 'n', 'cancel', '否', '取消'].includes(normalized);
+};
+
+const isAffirmativeChoice = (choice: unknown, okLabel: string, cancelLabel: string): boolean => {
+  if (choice === true || choice === 0) return true;
+  const normalized = normalizeDialogChoice(choice);
+  const normalizedOk = normalizeDialogChoice(okLabel);
+  if (isNegativeChoice(choice, cancelLabel)) return false;
+  return normalized === normalizedOk || ['0', 'true', 'yes', 'y', 'ok', '是', '确定'].includes(normalized) || normalized !== '';
+};
 
 export const NativeDialogs = {
   // 打开文件选择器（单选）。取消返回 null。
@@ -110,6 +127,23 @@ export const NativeDialogs = {
   async confirm(options: ConfirmOptions): Promise<boolean> {
     const okLabel = options.okLabel ?? 'OK';
     const cancelLabel = options.cancelLabel ?? 'Cancel';
+
+    // Windows 下 Wails 的 Question 对话框被强制渲染为系统 MessageBox(MB_YESNO)，
+    // 自定义按钮文案不会显示，系统只会回传 "Yes" / "No"。而后端仅在
+    // button.Label === 回传值 时才向响应 channel 写值，否则协程会永久阻塞、
+    // 前端 Promise 永不 resolve。因此 Windows 必须把按钮 Label 设为 "Yes" / "No"。
+    if (System.IsWindows()) {
+      const choice = await Dialogs.Question({
+        Title: options.title,
+        Message: options.message,
+        Buttons: [
+          { Label: 'No', IsCancel: true },
+          { Label: 'Yes', IsDefault: true },
+        ],
+      });
+      return isAffirmativeChoice(choice, 'Yes', 'No');
+    }
+
     const choice = await Dialogs.Question({
       Title: options.title,
       Message: options.message,
@@ -118,7 +152,7 @@ export const NativeDialogs = {
         { Label: cancelLabel, IsCancel: true },
       ],
     });
-    return choice === okLabel;
+    return isAffirmativeChoice(choice, okLabel, cancelLabel);
   },
 
   async info(title: string, message: string): Promise<void> {

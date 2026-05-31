@@ -11,6 +11,14 @@ export const shortcutsZhCN: Messages = {
       error: '操作失败：{{message}}',
       actions: {
         reset: '恢复默认快捷键',
+        'previous-track': {
+          label: '上一首',
+          description: '按当前曲库搜索和排序结果切换到上一首 MIDI。',
+        },
+        'next-track': {
+          label: '下一首',
+          description: '按当前曲库搜索和排序结果切换到下一首 MIDI。',
+        },
         'play-pause': {
           label: '播放 / 暂停',
           description: '演奏中暂停、暂停时继续。空闲时请在演奏面板点击开始。',

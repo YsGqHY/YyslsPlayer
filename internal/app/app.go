@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"YyslsPlayer/internal/events"
+	"YyslsPlayer/internal/services/appearance"
 	"YyslsPlayer/internal/services/appsettings"
 	"YyslsPlayer/internal/services/hotkey"
 	"YyslsPlayer/internal/services/keysim"
@@ -18,6 +19,7 @@ import (
 	"YyslsPlayer/internal/utils/logx"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	wailsevents "github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // Run 创建 Wails 应用、注册服务、打开主窗口并启动事件循环。
@@ -58,6 +60,7 @@ func Run(assets embed.FS) error {
 		Services: []application.Service{
 			application.NewService(preferences.New(holder)),
 			application.NewService(appsettings.New(holder)),
+			application.NewService(appearance.New()),
 			application.NewService(storagesvc.New(holder, cfgMgr)),
 			application.NewService(midi.New(holder)),
 			application.NewService(playerSvc),
@@ -81,7 +84,18 @@ func Run(assets embed.FS) error {
 	}
 	defer hotkeySvc.Stop()
 
-	app.Window.NewWithOptions(windowOptions())
+	window := app.Window.NewWithOptions(windowOptions())
+
+	// 文件拖放：用户把 MIDI 文件 / 文件夹拖入窗口的列表区域时，
+	// Wails 通过 WindowFilesDropped 事件把真实绝对路径送到后端（浏览器侧拿不到本地路径）。
+	// 这里把路径转发为强类型前端事件，由前端 MidiService 调用 ImportPaths 完成导入。
+	window.OnWindowEvent(wailsevents.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		files := e.Context().DroppedFiles()
+		if len(files) == 0 {
+			return
+		}
+		app.Event.Emit(midi.EventFilesDropped, midi.FilesDroppedDTO{Paths: files})
+	})
 
 	defer logx.Close()
 	return app.Run()

@@ -10,6 +10,8 @@ import "errors"
 
 // 动作 ID：与前端 settings.shortcuts.actions.<id> 文案、HotkeyBinding.ActionID 对齐。
 const (
+	ActionPreviousTrack    = "previous-track"
+	ActionNextTrack        = "next-track"
 	ActionPlayPause        = "play-pause"
 	ActionStop             = "stop"
 	ActionPreviewToggle    = "preview-toggle"
@@ -84,6 +86,8 @@ type defaultBinding struct {
 // 全部使用功能键或带修饰键的组合，绝不用裸普通键 —— OS 级热键会在系统范围
 // 吞掉该键，注册裸 Space / 字母会导致用户在任何程序里都无法输入。
 var defaultBindings = []defaultBinding{
+	{ActionID: ActionPreviousTrack, Accelerator: "F7"},
+	{ActionID: ActionNextTrack, Accelerator: "F8"},
 	{ActionID: ActionPlayPause, Accelerator: "F9"},
 	{ActionID: ActionStop, Accelerator: "F10"},
 	{ActionID: ActionPreviewToggle, Accelerator: "F11"},
@@ -92,6 +96,8 @@ var defaultBindings = []defaultBinding{
 
 // actionOrder 决定 List / StateDTO 的稳定顺序。
 var actionOrder = []string{
+	ActionPreviousTrack,
+	ActionNextTrack,
 	ActionPlayPause,
 	ActionStop,
 	ActionPreviewToggle,

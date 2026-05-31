@@ -1,11 +1,12 @@
 // MidiService：MIDI 导入、曲库、配置详情、质量报告与 PlayPlan 的前端封装。
 // View / ViewModel 不直接 import @bindings；所有后端字段在这里归一化为 camelCase。
-import { Call } from '@wailsio/runtime';
+import { Call, Events } from '@wailsio/runtime';
 import {
   ListProjectsRequest as BindingListProjectsRequest,
   MidiProfileDTO as BindingMidiProfileDTO,
   Service as Binding,
 } from '@bindings/YyslsPlayer/internal/services/midi';
+import { AppEvents, type WailsEventPayload } from '@/shared/events';
 
 export type OutOfRangePolicy = 'drop' | 'octaveFold' | 'nearest';
 export type KeyFrameAction = 'press' | 'release';
@@ -27,6 +28,7 @@ export interface MidiProjectSummary {
   channelCount: number;
   durationMs: number;
   noteCount: number;
+  fileSizeBytes: number;
   defaultProfileId?: number;
   createdAt: number;
   updatedAt: number;
@@ -125,6 +127,23 @@ export interface ImportBatchResult {
   items: ImportBatchItem[];
 }
 
+export type ProjectBatchManageStatus = 'deleted' | 'failed';
+
+export interface ProjectBatchManageItem {
+  projectId: number;
+  displayName: string;
+  status: ProjectBatchManageStatus;
+  reason: string;
+  error: string;
+}
+
+export interface ProjectBatchManageResult {
+  totalCount: number;
+  deletedCount: number;
+  failedCount: number;
+  items: ProjectBatchManageItem[];
+}
+
 export interface MidiProjectDetail {
   project: MidiProjectSummary;
   defaultProfile: MidiProfile;
@@ -179,10 +198,14 @@ type DefaultProfileBinding = typeof Binding & {
 type BatchImportBinding = typeof Binding & {
   ImportFiles?: (paths: string[]) => Promise<unknown>;
   ImportDirectory?: (path: string) => Promise<unknown>;
+  ImportPaths?: (paths: string[]) => Promise<unknown>;
 };
-
+type BatchManageBinding = typeof Binding & {
+  DeleteProjects?: (projectIds: number[]) => Promise<unknown>;
+};
 const defaultProfileBinding = Binding as DefaultProfileBinding;
 const batchImportBinding = Binding as BatchImportBinding;
+const batchManageBinding = Binding as BatchManageBinding;
 
 const requireDefaultProfileBinding = <K extends keyof Pick<DefaultProfileBinding, 'GetDefaultProfile' | 'UpdateDefaultProfile' | 'ResetDefaultProfile'>>(name: K): NonNullable<DefaultProfileBinding[K]> => {
   const fn = defaultProfileBinding[name];
@@ -211,6 +234,7 @@ const callBindingByName = async (method: string, ...args: unknown[]): Promise<un
 
 const asObject = (value: unknown): RawObject => (value && typeof value === 'object' ? value as RawObject : {});
 const asArray = <T>(value: unknown, map: (item: unknown) => T): T[] => Array.isArray(value) ? value.map(map) : [];
+const errorMessage = (value: unknown): string => value instanceof Error ? value.message : String(value ?? '');
 const asNumber = (value: unknown, fallback = 0): number => Number(value ?? fallback);
 const asString = (value: unknown, fallback = ''): string => String(value ?? fallback);
 const asBoolean = (value: unknown): boolean => Boolean(value);
@@ -232,6 +256,8 @@ const normalizeImportStatus = (value: unknown): ImportBatchStatus => {
   if (value === 'skipped' || value === 'failed') return value;
   return 'imported';
 };
+
+const normalizeManageStatus = (value: unknown): ProjectBatchManageStatus => value === 'deleted' ? 'deleted' : 'failed';
 
 const normalizeEnabledTracks = (value: unknown): number[] | null => {
   if (value === null || value === undefined) return null;
@@ -260,6 +286,7 @@ const mapProject = (value: unknown): MidiProjectSummary => {
     channelCount: asNumber(r.channelCount),
     durationMs: asNumber(r.durationMs),
     noteCount: asNumber(r.noteCount),
+    fileSizeBytes: asNumber(r.fileSizeBytes),
     defaultProfileId: maybeNumber(r.defaultProfileId),
     createdAt: asNumber(r.createdAt),
     updatedAt: asNumber(r.updatedAt),
@@ -375,6 +402,27 @@ const mapBatchResult = (value: unknown): ImportBatchResult => {
   };
 };
 
+const mapManageItem = (value: unknown): ProjectBatchManageItem => {
+  const r = asObject(value);
+  return {
+    projectId: asNumber(r.projectId),
+    displayName: asString(r.displayName),
+    status: normalizeManageStatus(r.status),
+    reason: asString(r.reason),
+    error: asString(r.error),
+  };
+};
+
+const mapManageResult = (value: unknown): ProjectBatchManageResult => {
+  const r = asObject(value);
+  return {
+    totalCount: asNumber(r.totalCount),
+    deletedCount: asNumber(r.deletedCount),
+    failedCount: asNumber(r.failedCount),
+    items: asArray(r.items, mapManageItem),
+  };
+};
+
 const mapDetail = (value: unknown): MidiProjectDetail => {
   const r = asObject(value);
   return {
@@ -474,6 +522,23 @@ export const MidiService = {
     return mapBatchResult(await (fn ? fn(path) : callBindingByName('ImportDirectory', path)));
   },
 
+  async importPaths(paths: string[]): Promise<ImportBatchResult> {
+    const fn = batchImportBinding.ImportPaths;
+    return mapBatchResult(await (fn ? fn(paths) : callBindingByName('ImportPaths', paths)));
+  },
+
+  // 订阅后端推送的文件拖放事件，回调收到被拖入的原始路径（可能含文件夹/非 MIDI，由后端展开过滤）。
+  // 返回取消订阅函数。
+  onFilesDropped(handler: (paths: string[]) => void): () => void {
+    return Events.On(AppEvents.MidiFilesDropped, (event: WailsEventPayload<unknown>) => {
+      const data = asObject(event?.data);
+      const paths = Array.isArray(data.paths) ? data.paths.map((p) => String(p)).filter((p) => p.length > 0) : [];
+      if (paths.length > 0) {
+        handler(paths);
+      }
+    });
+  },
+
   async listProjects(request: ListProjectsRequest = {}): Promise<MidiProjectSummary[]> {
     return asArray(await Binding.ListProjects(toBindingListProjectsRequest(request)), mapProject);
   },
@@ -484,6 +549,33 @@ export const MidiService = {
 
   async deleteProject(projectId: number): Promise<void> {
     await Binding.DeleteProject(projectId);
+  },
+
+  async deleteProjects(projectIds: number[]): Promise<ProjectBatchManageResult> {
+    const fn = batchManageBinding.DeleteProjects;
+    if (fn) {
+      return mapManageResult(await fn(projectIds));
+    }
+    try {
+      return mapManageResult(await callBindingByName('DeleteProjects', projectIds));
+    } catch {
+      const items: ProjectBatchManageItem[] = [];
+      for (const projectId of projectIds) {
+        try {
+          await Binding.DeleteProject(projectId);
+          items.push({ projectId, displayName: '', status: 'deleted', reason: '', error: '' });
+        } catch (itemError) {
+          const message = errorMessage(itemError);
+          items.push({ projectId, displayName: '', status: 'failed', reason: message, error: message });
+        }
+      }
+      return {
+        totalCount: projectIds.length,
+        deletedCount: items.filter((item) => item.status === 'deleted').length,
+        failedCount: items.filter((item) => item.status === 'failed').length,
+        items,
+      };
+    }
   },
 
   async updateProfile(profile: MidiProfile): Promise<MidiProfile> {
