@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,62 @@ func Client() *http.Client {
 		}
 	})
 	return sharedClient
+}
+
+// proxyMu 保护代理设置。
+var proxyMu sync.RWMutex
+
+// SetProxy 为共享 HTTP 客户端设置代理地址。
+// proxyAddr 格式如 "http://127.0.0.1:7890" 或 "socks5://127.0.0.1:1080"。
+// 传空字符串等同于 ClearProxy。
+func SetProxy(proxyAddr string) error {
+	cl := Client()
+	tr, ok := cl.Transport.(*http.Transport)
+	if !ok {
+		return fmt.Errorf("httpx: transport is not *http.Transport")
+	}
+
+	if strings.TrimSpace(proxyAddr) == "" {
+		proxyMu.Lock()
+		tr.Proxy = nil
+		proxyMu.Unlock()
+		return nil
+	}
+
+	u, err := url.Parse(proxyAddr)
+	if err != nil {
+		return fmt.Errorf("httpx: invalid proxy URL %q: %w", proxyAddr, err)
+	}
+	if u.Scheme == "" {
+		// url.Parse("127.0.0.1:7890") 会把 host:port 错误地放进 Path。
+		// 带 http:// 前缀重新解析以正确提取 host。
+		u, err = url.Parse("http://" + proxyAddr)
+		if err != nil {
+			return fmt.Errorf("httpx: invalid proxy URL %q: %w", proxyAddr, err)
+		}
+	}
+
+	proxyMu.Lock()
+	tr.Proxy = http.ProxyURL(u)
+	proxyMu.Unlock()
+	return nil
+}
+
+// ClearProxy 移除代理设置。
+func ClearProxy() {
+	_ = SetProxy("")
+}
+
+// ProxySet 返回当前是否设置了代理。
+func ProxySet() bool {
+	proxyMu.RLock()
+	defer proxyMu.RUnlock()
+	cl := Client()
+	tr, ok := cl.Transport.(*http.Transport)
+	if !ok {
+		return false
+	}
+	return tr.Proxy != nil
 }
 
 // NewRequest 构造带默认 UA 的请求。url 必填，method 默认 GET，body 允许 nil。

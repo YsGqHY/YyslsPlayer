@@ -77,8 +77,13 @@ func TestOpenSeedsDefaultMidiStateIdempotently(t *testing.T) {
 	}
 	assertDefaultLane(t, keymap[0], "C3", false, 90, 44, modifierKeysNone)
 	assertDefaultLane(t, keymap[1], "C#3", true, 90, 44, modifierKeysShift)
+	assertDefaultLane(t, keymap[3], "D#3", true, 67, 46, modifierKeysCtrl)
+	assertDefaultLane(t, keymap[6], "F#3", true, 86, 47, modifierKeysShift)
+	assertDefaultLane(t, keymap[10], "A#3", true, 77, 50, modifierKeysCtrl)
 	assertDefaultLane(t, keymap[12], "C4", false, 65, 30, modifierKeysNone)
 	assertDefaultLane(t, keymap[25], "C#5", true, 81, 16, modifierKeysShift)
+	assertDefaultLane(t, keymap[27], "D#5", true, 69, 18, modifierKeysCtrl)
+	assertDefaultLane(t, keymap[34], "A#5", true, 85, 22, modifierKeysCtrl)
 	assertDefaultLane(t, keymap[35], "B5", false, 85, 22, modifierKeysNone)
 
 	if err := ensureDefaultMidiState(db.Store); err != nil {
@@ -119,8 +124,81 @@ func TestOpenSeedsDefaultMidiStateIdempotently(t *testing.T) {
 	}
 }
 
-func TestOpenCreatesJSONFile(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "state.json")
+func TestDefaultKeymapUsesGameSemitoneModifierGroups(t *testing.T) {
+	rows := defaultKeymap36Rows()
+	byLane := keymapRowsByLane(rows)
+
+	assertDefaultLane(t, byLane[25], "C#5", true, 81, 16, modifierKeysShift) // Shift+Q
+	assertDefaultLane(t, byLane[13], "C#4", true, 65, 30, modifierKeysShift) // Shift+A
+	assertDefaultLane(t, byLane[1], "C#3", true, 90, 44, modifierKeysShift)  // Shift+Z
+	assertDefaultLane(t, byLane[30], "F#5", true, 82, 19, modifierKeysShift) // Shift+R
+	assertDefaultLane(t, byLane[18], "F#4", true, 70, 33, modifierKeysShift) // Shift+F
+	assertDefaultLane(t, byLane[6], "F#3", true, 86, 47, modifierKeysShift)  // Shift+V
+	assertDefaultLane(t, byLane[32], "G#5", true, 84, 20, modifierKeysShift) // Shift+T
+	assertDefaultLane(t, byLane[20], "G#4", true, 71, 34, modifierKeysShift) // Shift+G
+	assertDefaultLane(t, byLane[8], "G#3", true, 66, 48, modifierKeysShift)  // Shift+B
+
+	assertDefaultLane(t, byLane[27], "D#5", true, 69, 18, modifierKeysCtrl) // Ctrl+E
+	assertDefaultLane(t, byLane[15], "D#4", true, 68, 32, modifierKeysCtrl) // Ctrl+D
+	assertDefaultLane(t, byLane[3], "D#3", true, 67, 46, modifierKeysCtrl)  // Ctrl+C
+	assertDefaultLane(t, byLane[34], "A#5", true, 85, 22, modifierKeysCtrl) // Ctrl+U
+	assertDefaultLane(t, byLane[22], "A#4", true, 74, 36, modifierKeysCtrl) // Ctrl+J
+	assertDefaultLane(t, byLane[10], "A#3", true, 77, 50, modifierKeysCtrl) // Ctrl+M
+}
+
+func TestEnsureDefaultMidiStateMigratesLegacySemitoneDefaults(t *testing.T) {
+	db := openStorageTestDB(t, "legacy_semitone_defaults.json")
+	if err := db.Store.db().Where("profile_id = ?", DefaultKeymapProfileID).Delete(&Keymap36{}).Error; err != nil {
+		t.Fatalf("clear default keymap failed: %v", err)
+	}
+	rows := legacyDefaultKeymap36Rows()
+	now := nowMillis()
+	for i := range rows {
+		rows[i].CreatedAt = now
+		rows[i].UpdatedAt = now
+	}
+	if err := db.Store.db().Create(&rows).Error; err != nil {
+		t.Fatalf("seed legacy keymap failed: %v", err)
+	}
+
+	if err := ensureDefaultMidiState(db.Store); err != nil {
+		t.Fatalf("ensureDefaultMidiState() failed: %v", err)
+	}
+	keymap := db.Store.ListKeymapProfile(DefaultKeymapProfileID)
+	assertDefaultLane(t, keymap[3], "D#3", true, 67, 46, modifierKeysCtrl)
+	assertDefaultLane(t, keymap[10], "A#3", true, 77, 50, modifierKeysCtrl)
+	assertDefaultLane(t, keymap[27], "D#5", true, 69, 18, modifierKeysCtrl)
+	assertDefaultLane(t, keymap[34], "A#5", true, 85, 22, modifierKeysCtrl)
+}
+
+func TestEnsureDefaultMidiStateDoesNotOverwriteCustomizedSemitoneLane(t *testing.T) {
+	db := openStorageTestDB(t, "customized_semitone_defaults.json")
+	if err := db.Store.db().Where("profile_id = ?", DefaultKeymapProfileID).Delete(&Keymap36{}).Error; err != nil {
+		t.Fatalf("clear default keymap failed: %v", err)
+	}
+	rows := legacyDefaultKeymap36Rows()
+	now := nowMillis()
+	for i := range rows {
+		rows[i].CreatedAt = now
+		rows[i].UpdatedAt = now
+		if rows[i].Lane == 3 {
+			rows[i].ScanCode = 999
+		}
+	}
+	if err := db.Store.db().Create(&rows).Error; err != nil {
+		t.Fatalf("seed customized legacy keymap failed: %v", err)
+	}
+
+	if err := ensureDefaultMidiState(db.Store); err != nil {
+		t.Fatalf("ensureDefaultMidiState() failed: %v", err)
+	}
+	keymap := db.Store.ListKeymapProfile(DefaultKeymapProfileID)
+	assertDefaultLane(t, keymap[3], "D#3", true, 88, 999, modifierKeysShift)
+	assertDefaultLane(t, keymap[10], "A#3", true, 77, 50, modifierKeysCtrl)
+}
+
+func TestOpenCreatesDBFile(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state.db")
 	db, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open() failed: %v", err)

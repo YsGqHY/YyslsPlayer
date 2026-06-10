@@ -26,7 +26,7 @@ import (
 type Config struct {
 	// Level 默认 LevelInfo；dev 期可以传 LevelDebug。
 	Level slog.Level
-	// Dir 日志目录；空时取平台默认（与数据库同级目录下的 logs/）。
+	// Dir 日志目录；空时取平台默认（与数据文件同级目录下的 logs/）。
 	Dir string
 	// Filename 日志文件名（不含路径）；默认 "app.log"。
 	Filename string

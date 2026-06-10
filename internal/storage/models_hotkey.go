@@ -12,10 +12,10 @@ const HotkeyBindingsTable = "hotkey_bindings"
 // 注意：Registered 状态（是否成功注册到 OS、是否被占用）是运行时态，不落库，
 // 由 hotkey 服务在内存里维护并随 StateDTO 返回。
 type HotkeyBinding struct {
-	ActionID    string `json:"actionId"`
-	Accelerator string `json:"accelerator"`
+	ActionID    string `gorm:"primaryKey;size:64" json:"actionId"`
+	Accelerator string `gorm:"size:128" json:"accelerator"`
 	Enabled     bool   `json:"enabled"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	UpdatedAt   int64  `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
 
 func (HotkeyBinding) TableName() string { return HotkeyBindingsTable }

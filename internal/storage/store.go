@@ -1,54 +1,31 @@
 package storage
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"YyslsPlayer/internal/utils/filex"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-const StoreVersion = 1
-
+// Store 是面向业务的持久化门面，背后由 GORM + SQLite 支撑。
+// 业务 service 通过 holder.Current().Store 访问，方法签名与历史版本保持兼容。
 type Store struct {
+	gdb  *gorm.DB
 	path string
-	mu   sync.RWMutex
-	data storeData
+	mu   sync.Mutex // 仅保护"读改写"复合操作（如默认状态补齐、批量删除）的原子性
 }
 
-type storeData struct {
-	Version        int             `json:"version"`
-	NextIDs        nextIDs         `json:"nextIds"`
-	Preferences    []Preference    `json:"preferences"`
-	AppSettings    AppSettings     `json:"appSettings"`
-	MidiProjects   []MidiProject   `json:"midiProjects"`
-	MidiEvents     []MidiEvent     `json:"midiEvents"`
-	MidiProfiles   []MidiProfile   `json:"midiProfiles"`
-	Keymap36       []Keymap36      `json:"keymap36"`
-	PlayHistory    []PlayHistory   `json:"playHistory"`
-	HotkeyBindings []HotkeyBinding `json:"hotkeyBindings"`
-}
-
-type nextIDs struct {
-	MidiProject uint `json:"midiProject"`
-	MidiEvent   uint `json:"midiEvent"`
-	MidiProfile uint `json:"midiProfile"`
-	Keymap36    uint `json:"keymap36"`
-	PlayHistory uint `json:"playHistory"`
-}
-
+// ProjectListOptions 控制曲库列表分页与搜索。
 type ProjectListOptions struct {
 	Limit  int
 	Offset int
 	Query  string
 }
 
+// ProjectImportData 是一次导入要写入的项目与其事件。
 type ProjectImportData struct {
 	Project MidiProject
 	Events  []MidiEvent
@@ -80,312 +57,164 @@ type ProjectDeleteResult struct {
 	Reason    string
 }
 
-func OpenStore(path string) (*Store, error) {
-	if path == "" {
-		return nil, errors.New("storage: empty data path")
-	}
-	st := &Store{path: path}
-	if err := st.load(); err != nil {
-		return nil, err
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.ensureDefaultsLocked()
-	if err := st.persistLocked(); err != nil {
-		return nil, err
-	}
-	return st, nil
-}
+func nowMillis() int64 { return time.Now().UnixMilli() }
 
+// Path 返回当前数据库文件路径。
 func (s *Store) Path() string { return s.path }
 
+// Close 为兼容旧接口保留；真正的连接关闭在 DB.Close 完成。
 func (s *Store) Close() error { return nil }
 
-func (s *Store) load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := ensureDir(dirOf(s.path)); err != nil {
-		return fmt.Errorf("storage: ensure dir: %w", err)
-	}
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			s.data = newStoreData()
-			return nil
-		}
-		return fmt.Errorf("storage: read json: %w", err)
-	}
-	if len(data) == 0 {
-		s.data = newStoreData()
-		return nil
-	}
-	var decoded storeData
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return fmt.Errorf("storage: decode json: %w", err)
-	}
-	s.data = decoded
-	if s.data.Version == 0 {
-		s.data.Version = StoreVersion
-	}
-	s.repairNextIDsLocked()
-	return nil
-}
+// db 返回底层 GORM 句柄。
+func (s *Store) db() *gorm.DB { return s.gdb }
 
-func newStoreData() storeData {
-	return storeData{Version: StoreVersion, AppSettings: defaultAppSettings()}
-}
-
-func defaultAppSettings() AppSettings {
-	return AppSettings{ID: 1, ThemeChoice: "system", LocaleChoice: "auto"}
-}
-
-func dirOf(path string) string {
-	return filepath.Dir(path)
-}
-
-func (s *Store) persistLocked() error {
-	s.data.Version = StoreVersion
-	s.repairNextIDsLocked()
-	data, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return filex.WriteAtomic(s.path, data, 0o644)
-}
-
-func (s *Store) repairNextIDsLocked() {
-	if min := maxProjectID(s.data.MidiProjects) + 1; s.data.NextIDs.MidiProject < min {
-		s.data.NextIDs.MidiProject = min
-	}
-	if min := maxEventID(s.data.MidiEvents) + 1; s.data.NextIDs.MidiEvent < min {
-		s.data.NextIDs.MidiEvent = min
-	}
-	if min := maxProfileID(s.data.MidiProfiles) + 1; s.data.NextIDs.MidiProfile < min {
-		s.data.NextIDs.MidiProfile = min
-	}
-	if min := maxKeymapID(s.data.Keymap36) + 1; s.data.NextIDs.Keymap36 < min {
-		s.data.NextIDs.Keymap36 = min
-	}
-	if min := maxHistoryID(s.data.PlayHistory) + 1; s.data.NextIDs.PlayHistory < min {
-		s.data.NextIDs.PlayHistory = min
-	}
-}
-
-func (s *Store) ensureDefaultsLocked() {
-	if s.data.AppSettings.ID == 0 {
-		s.data.AppSettings = defaultAppSettings()
-	}
-	if s.data.AppSettings.ThemeChoice == "" {
-		s.data.AppSettings.ThemeChoice = "system"
-	}
-	if s.data.AppSettings.LocaleChoice == "" {
-		s.data.AppSettings.LocaleChoice = "auto"
-	}
-	s.ensureDefaultKeymapLocked()
-	s.ensureDefaultProfileLocked()
-	s.repairNextIDsLocked()
-}
-
-func (s *Store) ensureDefaultProfileLocked() {
-	for _, row := range s.data.MidiProfiles {
-		if row.ProjectID == nil {
-			return
-		}
-	}
-	profile := defaultMidiProfile()
-	if s.profileIDExistsLocked(DefaultMidiProfileID) {
-		profile.ID = s.nextProfileIDLocked()
-	}
-	now := nowMillis()
-	if profile.CreatedAt == 0 {
-		profile.CreatedAt = now
-	}
-	profile.UpdatedAt = now
-	s.data.MidiProfiles = append(s.data.MidiProfiles, profile)
-}
-
-func (s *Store) ensureDefaultKeymapLocked() {
-	exists := map[int]bool{}
-	for _, row := range s.data.Keymap36 {
-		if row.ProfileID == DefaultKeymapProfileID {
-			exists[row.Lane] = true
-		}
-	}
-	now := nowMillis()
-	for _, row := range defaultKeymap36Rows() {
-		if exists[row.Lane] {
-			continue
-		}
-		if row.ID == 0 || s.keymapIDExistsLocked(row.ID) {
-			row.ID = s.nextKeymapIDLocked()
-		}
-		if row.CreatedAt == 0 {
-			row.CreatedAt = now
-		}
-		row.UpdatedAt = now
-		s.data.Keymap36 = append(s.data.Keymap36, row)
-	}
-}
-
-func (s *Store) WithWrite(fn func(*storeData) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := fn(&s.data); err != nil {
-		return err
-	}
-	s.ensureDefaultsLocked()
-	return s.persistLocked()
-}
+// ===== 行为偏好 preferences =====
 
 func (s *Store) GetPreference(key string) (string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, row := range s.data.Preferences {
-		if row.Key == key {
-			return row.Value, true
-		}
+	var row Preference
+	if err := s.db().Where("key = ?", key).Take(&row).Error; err != nil {
+		return "", false
 	}
-	return "", false
+	return row.Value, true
 }
 
 func (s *Store) SetPreference(key, value string) error {
-	return s.WithWrite(func(d *storeData) error {
-		now := nowMillis()
-		for i := range d.Preferences {
-			if d.Preferences[i].Key == key {
-				d.Preferences[i].Value = value
-				d.Preferences[i].UpdatedAt = now
-				return nil
-			}
-		}
-		d.Preferences = append(d.Preferences, Preference{Key: key, Value: value, UpdatedAt: now})
-		return nil
-	})
+	row := Preference{Key: key, Value: value, UpdatedAt: nowMillis()}
+	return s.db().Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&row).Error
 }
 
 func (s *Store) ListPreferences() []Preference {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := append([]Preference(nil), s.data.Preferences...)
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
-	return out
+	var rows []Preference
+	if err := s.db().Order("key ASC").Find(&rows).Error; err != nil {
+		return []Preference{}
+	}
+	return rows
 }
 
 func (s *Store) DeletePreference(key string) error {
-	return s.WithWrite(func(d *storeData) error {
-		d.Preferences = filterSlice(d.Preferences, func(row Preference) bool { return row.Key != key })
-		return nil
-	})
+	return s.db().Where("key = ?", key).Delete(&Preference{}).Error
 }
 
 func (s *Store) ClearPreferences() error {
-	return s.WithWrite(func(d *storeData) error { d.Preferences = nil; return nil })
+	return s.db().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Preference{}).Error
 }
 
+// ===== 应用设置 app_settings =====
+
 func (s *Store) GetAppSettings() AppSettings {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.data.AppSettings
+	var row AppSettings
+	if err := s.db().Where("id = ?", uint(1)).Take(&row).Error; err != nil {
+		return defaultAppSettings()
+	}
+	return row
 }
 
 func (s *Store) UpdateAppSettings(mut func(*AppSettings)) error {
-	return s.WithWrite(func(d *storeData) error {
-		mut(&d.AppSettings)
-		d.AppSettings.ID = 1
-		d.AppSettings.UpdatedAt = nowMillis()
-		return nil
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var row AppSettings
+	err := s.db().Where("id = ?", uint(1)).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = defaultAppSettings()
+	} else if err != nil {
+		return err
+	}
+	mut(&row)
+	row.ID = 1
+	row.UpdatedAt = nowMillis()
+	return s.db().Save(&row).Error
 }
 
+// ===== 全局快捷键 hotkey_bindings =====
+
 func (s *Store) CountHotkeyBindings() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return int64(len(s.data.HotkeyBindings))
+	var n int64
+	s.db().Model(&HotkeyBinding{}).Count(&n)
+	return n
 }
 
 func (s *Store) ListHotkeyBindings() []HotkeyBinding {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]HotkeyBinding(nil), s.data.HotkeyBindings...)
+	var rows []HotkeyBinding
+	if err := s.db().Find(&rows).Error; err != nil {
+		return []HotkeyBinding{}
+	}
+	return rows
 }
 
 func (s *Store) SaveHotkeyBinding(row HotkeyBinding) error {
-	return s.WithWrite(func(d *storeData) error {
-		now := nowMillis()
-		row.UpdatedAt = now
-		for i := range d.HotkeyBindings {
-			if d.HotkeyBindings[i].ActionID == row.ActionID {
-				d.HotkeyBindings[i] = row
-				return nil
-			}
-		}
-		d.HotkeyBindings = append(d.HotkeyBindings, row)
-		return nil
-	})
+	row.UpdatedAt = nowMillis()
+	return s.db().Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "action_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"accelerator", "enabled", "updated_at"}),
+	}).Create(&row).Error
 }
 
 func (s *Store) GetHotkeyBinding(actionID string) (HotkeyBinding, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, row := range s.data.HotkeyBindings {
-		if row.ActionID == actionID {
-			return row, true
-		}
+	var row HotkeyBinding
+	if err := s.db().Where("action_id = ?", actionID).Take(&row).Error; err != nil {
+		return HotkeyBinding{}, false
 	}
-	return HotkeyBinding{}, false
+	return row, true
 }
 
 func (s *Store) ClearHotkeyBindings() error {
-	return s.WithWrite(func(d *storeData) error { d.HotkeyBindings = nil; return nil })
+	return s.db().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&HotkeyBinding{}).Error
 }
 
+// ===== 项目 midi_projects：查询 =====
+
 func (s *Store) ListProjects(opts ProjectListOptions) []MidiProject {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	query := strings.ToLower(strings.TrimSpace(opts.Query))
-	rows := make([]MidiProject, 0, len(s.data.MidiProjects))
-	for _, row := range s.data.MidiProjects {
-		if query != "" && !strings.Contains(strings.ToLower(row.DisplayName), query) && !strings.Contains(strings.ToLower(row.FileName), query) && !strings.Contains(strings.ToLower(row.FileHash), query) {
-			continue
-		}
-		rows = append(rows, row)
+	q := s.db().Model(&MidiProject{})
+	if query := strings.TrimSpace(opts.Query); query != "" {
+		like := "%" + strings.ToLower(query) + "%"
+		q = q.Where(
+			"LOWER(display_name) LIKE ? OR LOWER(file_name) LIKE ? OR LOWER(file_hash) LIKE ?",
+			like, like, like,
+		)
 	}
-	sortProjects(rows)
-	if opts.Offset < 0 {
-		opts.Offset = 0
+	q = q.Order("updated_at DESC").Order("id DESC")
+	if opts.Offset > 0 {
+		q = q.Offset(opts.Offset)
 	}
-	if opts.Offset >= len(rows) {
+	if opts.Limit > 0 {
+		q = q.Limit(opts.Limit)
+	}
+	var rows []MidiProject
+	if err := q.Find(&rows).Error; err != nil {
 		return []MidiProject{}
 	}
-	end := opts.Offset + opts.Limit
-	if opts.Limit <= 0 || end > len(rows) {
-		end = len(rows)
-	}
-	return append([]MidiProject(nil), rows[opts.Offset:end]...)
+	return rows
 }
 
 func (s *Store) GetProject(id uint) (MidiProject, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return findProject(s.data.MidiProjects, id)
+	var row MidiProject
+	if err := s.db().Where("id = ?", id).Take(&row).Error; err != nil {
+		return MidiProject{}, false
+	}
+	return row, true
 }
 
 func (s *Store) GetProjectByHash(hash string) (MidiProject, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, row := range s.data.MidiProjects {
-		if row.FileHash == hash {
-			return row, true
-		}
+	if hash == "" {
+		return MidiProject{}, false
 	}
-	return MidiProject{}, false
+	var row MidiProject
+	if err := s.db().Where("file_hash = ?", hash).Take(&row).Error; err != nil {
+		return MidiProject{}, false
+	}
+	return row, true
 }
 
 func (s *Store) ProjectHashIndex() map[string]MidiProject {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make(map[string]MidiProject, len(s.data.MidiProjects))
-	for _, row := range s.data.MidiProjects {
+	var rows []MidiProject
+	if err := s.db().Find(&rows).Error; err != nil {
+		return map[string]MidiProject{}
+	}
+	out := make(map[string]MidiProject, len(rows))
+	for _, row := range rows {
 		if row.FileHash == "" {
 			continue
 		}
@@ -394,24 +223,36 @@ func (s *Store) ProjectHashIndex() map[string]MidiProject {
 	return out
 }
 
+func (s *Store) CountProjects() int64 {
+	var n int64
+	s.db().Model(&MidiProject{}).Count(&n)
+	return n
+}
+
+// ===== 项目导入：单个 / 批量 =====
+
 func (s *Store) ImportProject(input ProjectImportData) (MidiProject, error) {
 	var imported MidiProject
-	err := s.WithWrite(func(d *storeData) error {
-		if _, ok := findProjectByHash(d.MidiProjects, input.Project.FileHash); ok {
-			return errors.New("duplicate project")
+	err := s.db().Transaction(func(tx *gorm.DB) error {
+		if input.Project.FileHash != "" {
+			var count int64
+			tx.Model(&MidiProject{}).Where("file_hash = ?", input.Project.FileHash).Count(&count)
+			if count > 0 {
+				return errors.New("duplicate project")
+			}
 		}
-		now := nowMillis()
 		project := input.Project
-		project.ID = s.nextProjectIDLocked()
+		project.ID = 0
+		now := nowMillis()
 		if project.CreatedAt == 0 {
 			project.CreatedAt = now
 		}
 		project.UpdatedAt = now
-		d.MidiProjects = append(d.MidiProjects, project)
-		for _, event := range input.Events {
-			event.ID = s.nextEventIDLocked()
-			event.ProjectID = project.ID
-			d.MidiEvents = append(d.MidiEvents, event)
+		if err := tx.Create(&project).Error; err != nil {
+			return err
+		}
+		if err := insertEventsForProject(tx, project.ID, input.Events); err != nil {
+			return err
 		}
 		imported = project
 		return nil
@@ -424,35 +265,37 @@ func (s *Store) ImportProjectsBatch(inputs []ProjectImportData) ([]ProjectBatchI
 		return []ProjectBatchImportResult{}, nil
 	}
 	results := make([]ProjectBatchImportResult, len(inputs))
-	err := s.WithWrite(func(d *storeData) error {
-		existingByHash := make(map[string]MidiProject, len(d.MidiProjects)+len(inputs))
-		for _, row := range d.MidiProjects {
-			if row.FileHash == "" {
-				continue
+	err := s.db().Transaction(func(tx *gorm.DB) error {
+		existingByHash := map[string]MidiProject{}
+		var existing []MidiProject
+		if err := tx.Find(&existing).Error; err != nil {
+			return err
+		}
+		for _, row := range existing {
+			if row.FileHash != "" {
+				existingByHash[row.FileHash] = row
 			}
-			existingByHash[row.FileHash] = row
 		}
 
 		now := nowMillis()
 		for i, input := range inputs {
 			if input.Project.FileHash != "" {
-				if existing, ok := existingByHash[input.Project.FileHash]; ok {
-					results[i] = ProjectBatchImportResult{Project: existing, Status: ProjectBatchImportStatusSkipped, Reason: ProjectBatchImportReasonDuplicateInLibrary}
+				if prev, ok := existingByHash[input.Project.FileHash]; ok {
+					results[i] = ProjectBatchImportResult{Project: prev, Status: ProjectBatchImportStatusSkipped, Reason: ProjectBatchImportReasonDuplicateInLibrary}
 					continue
 				}
 			}
-
 			project := input.Project
-			project.ID = s.nextProjectIDLocked()
+			project.ID = 0
 			if project.CreatedAt == 0 {
 				project.CreatedAt = now
 			}
 			project.UpdatedAt = now
-			d.MidiProjects = append(d.MidiProjects, project)
-			for _, event := range input.Events {
-				event.ID = s.nextEventIDLocked()
-				event.ProjectID = project.ID
-				d.MidiEvents = append(d.MidiEvents, event)
+			if err := tx.Create(&project).Error; err != nil {
+				return err
+			}
+			if err := insertEventsForProject(tx, project.ID, input.Events); err != nil {
+				return err
 			}
 			if project.FileHash != "" {
 				existingByHash[project.FileHash] = project
@@ -461,126 +304,136 @@ func (s *Store) ImportProjectsBatch(inputs []ProjectImportData) ([]ProjectBatchI
 		}
 		return nil
 	})
-	return results, err
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
-func (s *Store) ListProjectProfiles(projectID uint) []MidiProfile {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rows := make([]MidiProfile, 0)
-	for _, row := range s.data.MidiProfiles {
-		if row.ProjectID != nil && *row.ProjectID == projectID {
-			rows = append(rows, row)
-		}
+// insertEventsForProject 批量写入某项目的标准化事件（重置 ID，绑定 ProjectID）。
+func insertEventsForProject(tx *gorm.DB, projectID uint, events []MidiEvent) error {
+	if len(events) == 0 {
+		return nil
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		return rows[i].ID < rows[j].ID
-	})
+	rows := make([]MidiEvent, len(events))
+	for i, ev := range events {
+		ev.ID = 0
+		ev.ProjectID = projectID
+		rows[i] = ev
+	}
+	return tx.CreateInBatches(rows, 500).Error
+}
+
+// ===== 配置档 midi_profiles =====
+
+func (s *Store) ListProjectProfiles(projectID uint) []MidiProfile {
+	var rows []MidiProfile
+	if err := s.db().Where("project_id = ?", projectID).Order("id ASC").Find(&rows).Error; err != nil {
+		return []MidiProfile{}
+	}
 	return rows
 }
 
 func (s *Store) GetProfile(id uint) (MidiProfile, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return findProfile(s.data.MidiProfiles, id)
+	var row MidiProfile
+	if err := s.db().Where("id = ?", id).Take(&row).Error; err != nil {
+		return MidiProfile{}, false
+	}
+	return row, true
 }
 
 func (s *Store) GetGlobalDefaultProfile() (MidiProfile, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, row := range s.data.MidiProfiles {
-		if row.ProjectID == nil {
-			return row, true
-		}
+	var row MidiProfile
+	if err := s.db().Where("project_id IS NULL").Order("id ASC").Take(&row).Error; err != nil {
+		return MidiProfile{}, false
 	}
-	return MidiProfile{}, false
+	return row, true
 }
 
 func (s *Store) SaveProfile(row MidiProfile) (MidiProfile, error) {
-	var saved MidiProfile
-	err := s.WithWrite(func(d *storeData) error {
-		now := nowMillis()
-		if row.ID == 0 {
-			row.ID = s.nextProfileIDLocked()
-			row.CreatedAt = now
-		} else if old, ok := findProfile(d.MidiProfiles, row.ID); ok && row.CreatedAt == 0 {
+	now := nowMillis()
+	if row.ID == 0 {
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		if err := s.db().Create(&row).Error; err != nil {
+			return MidiProfile{}, err
+		}
+		return row, nil
+	}
+	if row.CreatedAt == 0 {
+		var old MidiProfile
+		if err := s.db().Where("id = ?", row.ID).Take(&old).Error; err == nil {
 			row.CreatedAt = old.CreatedAt
 		}
-		row.UpdatedAt = now
-		for i := range d.MidiProfiles {
-			if d.MidiProfiles[i].ID == row.ID {
-				d.MidiProfiles[i] = row
-				saved = row
-				return nil
-			}
-		}
-		d.MidiProfiles = append(d.MidiProfiles, row)
-		saved = row
-		return nil
-	})
-	return saved, err
+	}
+	row.UpdatedAt = now
+	if err := s.db().Save(&row).Error; err != nil {
+		return MidiProfile{}, err
+	}
+	return row, nil
 }
 
+// ===== 项目默认档关联 + 保存项目 =====
+
 func (s *Store) UpdateProjectDefaultProfile(projectID uint, profileID uint) error {
-	return s.WithWrite(func(d *storeData) error {
-		for i := range d.MidiProjects {
-			if d.MidiProjects[i].ID == projectID {
-				d.MidiProjects[i].DefaultProfileID = &profileID
-				d.MidiProjects[i].UpdatedAt = nowMillis()
-				return nil
-			}
-		}
+	res := s.db().Model(&MidiProject{}).
+		Where("id = ?", projectID).
+		Updates(map[string]any{"default_profile_id": profileID, "updated_at": nowMillis()})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return errors.New("project not found")
-	})
+	}
+	return nil
 }
 
 func (s *Store) SaveProject(row MidiProject) (MidiProject, error) {
-	var saved MidiProject
-	err := s.WithWrite(func(d *storeData) error {
-		now := nowMillis()
-		if row.ID == 0 {
-			row.ID = s.nextProjectIDLocked()
-			row.CreatedAt = now
-		} else if old, ok := findProject(d.MidiProjects, row.ID); ok && row.CreatedAt == 0 {
+	now := nowMillis()
+	if row.ID == 0 {
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		if err := s.db().Create(&row).Error; err != nil {
+			return MidiProject{}, err
+		}
+		return row, nil
+	}
+	if row.CreatedAt == 0 {
+		var old MidiProject
+		if err := s.db().Where("id = ?", row.ID).Take(&old).Error; err == nil {
 			row.CreatedAt = old.CreatedAt
 		}
-		row.UpdatedAt = now
-		for i := range d.MidiProjects {
-			if d.MidiProjects[i].ID == row.ID {
-				d.MidiProjects[i] = row
-				saved = row
-				return nil
-			}
-		}
-		d.MidiProjects = append(d.MidiProjects, row)
-		saved = row
-		return nil
-	})
-	return saved, err
+	}
+	row.UpdatedAt = now
+	if err := s.db().Save(&row).Error; err != nil {
+		return MidiProject{}, err
+	}
+	return row, nil
 }
 
+// ===== 事件批量写入 + 播放历史 =====
+
 func (s *Store) AddEvents(events []MidiEvent) error {
-	return s.WithWrite(func(d *storeData) error {
-		for _, event := range events {
-			event.ID = s.nextEventIDLocked()
-			d.MidiEvents = append(d.MidiEvents, event)
-		}
+	if len(events) == 0 {
 		return nil
-	})
+	}
+	rows := make([]MidiEvent, len(events))
+	for i, ev := range events {
+		ev.ID = 0
+		rows[i] = ev
+	}
+	return s.db().CreateInBatches(rows, 500).Error
 }
 
 func (s *Store) AddPlayHistory(row PlayHistory) (PlayHistory, error) {
-	var saved PlayHistory
-	err := s.WithWrite(func(d *storeData) error {
-		if row.ID == 0 {
-			row.ID = s.nextHistoryIDLocked()
-		}
-		d.PlayHistory = append(d.PlayHistory, row)
-		saved = row
-		return nil
-	})
-	return saved, err
+	row.ID = 0
+	if err := s.db().Create(&row).Error; err != nil {
+		return PlayHistory{}, err
+	}
+	return row, nil
 }
+
+// ===== 项目删除（单个 / 批量，级联清理） =====
 
 func (s *Store) DeleteProject(projectID uint) error {
 	results, err := s.DeleteProjectsBatch([]uint{projectID})
@@ -597,335 +450,150 @@ func (s *Store) DeleteProjectsBatch(projectIDs []uint) ([]ProjectDeleteResult, e
 	if len(projectIDs) == 0 {
 		return []ProjectDeleteResult{}, nil
 	}
-	results := make([]ProjectDeleteResult, len(projectIDs))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	projectByID := make(map[uint]MidiProject, len(s.data.MidiProjects))
-	for _, row := range s.data.MidiProjects {
-		projectByID[row.ID] = row
-	}
+	results := make([]ProjectDeleteResult, len(projectIDs))
+	err := s.db().Transaction(func(tx *gorm.DB) error {
+		projectByID := map[uint]MidiProject{}
+		var rows []MidiProject
+		if err := tx.Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			projectByID[row.ID] = row
+		}
 
-	deleteSet := make(map[uint]struct{}, len(projectIDs))
-	for i, projectID := range projectIDs {
-		results[i].ProjectID = projectID
-		if projectID == 0 {
-			results[i].Reason = ProjectDeleteReasonInvalidID
-			continue
+		deleteSet := map[uint]struct{}{}
+		for i, projectID := range projectIDs {
+			results[i].ProjectID = projectID
+			if projectID == 0 {
+				results[i].Reason = ProjectDeleteReasonInvalidID
+				continue
+			}
+			if _, dup := deleteSet[projectID]; dup {
+				results[i].Reason = ProjectDeleteReasonDuplicate
+				continue
+			}
+			project, ok := projectByID[projectID]
+			if !ok {
+				results[i].Reason = ProjectDeleteReasonNotFound
+				continue
+			}
+			deleteSet[projectID] = struct{}{}
+			results[i].Project = project
+			results[i].Deleted = true
 		}
-		if _, exists := deleteSet[projectID]; exists {
-			results[i].Reason = ProjectDeleteReasonDuplicate
-			continue
-		}
-		project, ok := projectByID[projectID]
-		if !ok {
-			results[i].Reason = ProjectDeleteReasonNotFound
-			continue
-		}
-		deleteSet[projectID] = struct{}{}
-		results[i].Project = project
-		results[i].Deleted = true
-	}
 
-	if len(deleteSet) == 0 {
-		return results, nil
-	}
-	s.data.MidiEvents = filterSlice(s.data.MidiEvents, func(row MidiEvent) bool { _, drop := deleteSet[row.ProjectID]; return !drop })
-	s.data.PlayHistory = filterSlice(s.data.PlayHistory, func(row PlayHistory) bool { _, drop := deleteSet[row.ProjectID]; return !drop })
-	s.data.MidiProfiles = filterSlice(s.data.MidiProfiles, func(row MidiProfile) bool {
-		return row.ProjectID == nil || !containsProjectID(deleteSet, *row.ProjectID)
+		if len(deleteSet) == 0 {
+			return nil
+		}
+		ids := make([]uint, 0, len(deleteSet))
+		for id := range deleteSet {
+			ids = append(ids, id)
+		}
+		if err := tx.Where("project_id IN ?", ids).Delete(&MidiEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id IN ?", ids).Delete(&PlayHistory{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id IN ?", ids).Delete(&MidiProfile{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", ids).Delete(&MidiProject{}).Error; err != nil {
+			return err
+		}
+		return nil
 	})
-	s.data.MidiProjects = filterSlice(s.data.MidiProjects, func(row MidiProject) bool { _, drop := deleteSet[row.ID]; return !drop })
-	s.ensureDefaultsLocked()
-	return results, s.persistLocked()
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
+// ===== 事件查询 + 各类计数 =====
+
 func (s *Store) ListEventsByProject(projectID uint) []MidiEvent {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rows := make([]MidiEvent, 0)
-	for _, row := range s.data.MidiEvents {
-		if row.ProjectID == projectID {
-			rows = append(rows, row)
-		}
+	var rows []MidiEvent
+	if err := s.db().Where("project_id = ?", projectID).
+		Order("start_ms ASC").Order("id ASC").
+		Find(&rows).Error; err != nil {
+		return []MidiEvent{}
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].StartMs != rows[j].StartMs {
-			return rows[i].StartMs < rows[j].StartMs
-		}
-		return rows[i].ID < rows[j].ID
-	})
 	return rows
 }
 
 func (s *Store) CountEventsByProject(projectID uint) int64 {
-	return int64(len(s.ListEventsByProject(projectID)))
+	var n int64
+	s.db().Model(&MidiEvent{}).Where("project_id = ?", projectID).Count(&n)
+	return n
 }
 
 func (s *Store) CountProfilesByProject(projectID uint) int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var count int64
-	for _, row := range s.data.MidiProfiles {
-		if row.ProjectID != nil && *row.ProjectID == projectID {
-			count++
-		}
-	}
-	return count
-}
-
-func (s *Store) CountHistoryByProject(projectID uint) int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var count int64
-	for _, row := range s.data.PlayHistory {
-		if row.ProjectID == projectID {
-			count++
-		}
-	}
-	return count
-}
-
-func (s *Store) CountProjects() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return int64(len(s.data.MidiProjects))
+	var n int64
+	s.db().Model(&MidiProfile{}).Where("project_id = ?", projectID).Count(&n)
+	return n
 }
 
 func (s *Store) CountProjectProfiles(projectID uint) int64 {
 	return s.CountProfilesByProject(projectID)
 }
 
+func (s *Store) CountHistoryByProject(projectID uint) int64 {
+	var n int64
+	s.db().Model(&PlayHistory{}).Where("project_id = ?", projectID).Count(&n)
+	return n
+}
+
 func (s *Store) CountGlobalDefaultProfiles() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var count int64
-	for _, row := range s.data.MidiProfiles {
-		if row.ProjectID == nil && row.KeymapProfileID == DefaultKeymapProfileID {
-			count++
-		}
-	}
-	return count
+	var n int64
+	s.db().Model(&MidiProfile{}).
+		Where("project_id IS NULL AND keymap_profile_id = ?", DefaultKeymapProfileID).
+		Count(&n)
+	return n
 }
 
 func (s *Store) CountKeymapRows(profileID uint) int64 {
-	return int64(len(s.ListKeymapProfile(profileID)))
+	var n int64
+	s.db().Model(&Keymap36{}).Where("profile_id = ?", profileID).Count(&n)
+	return n
 }
 
+// ===== 36 键映射 keymap_36 =====
+
 func (s *Store) ListKeymapProfile(profileID uint) []Keymap36 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rows := make([]Keymap36, 0)
-	for _, row := range s.data.Keymap36 {
-		if row.ProfileID == profileID {
-			rows = append(rows, row)
-		}
+	var rows []Keymap36
+	if err := s.db().Where("profile_id = ?", profileID).
+		Order("display_order ASC").Order("lane ASC").
+		Find(&rows).Error; err != nil {
+		return []Keymap36{}
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].DisplayOrder != rows[j].DisplayOrder {
-			return rows[i].DisplayOrder < rows[j].DisplayOrder
-		}
-		return rows[i].Lane < rows[j].Lane
-	})
 	return rows
 }
 
 func (s *Store) UpdateKeymapLane(profileID uint, lane int, mutate func(*Keymap36)) error {
-	return s.WithWrite(func(d *storeData) error {
-		for i := range d.Keymap36 {
-			if d.Keymap36[i].ProfileID == profileID && d.Keymap36[i].Lane == lane {
-				mutate(&d.Keymap36[i])
-				d.Keymap36[i].UpdatedAt = nowMillis()
-				return nil
-			}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db().Transaction(func(tx *gorm.DB) error {
+		var row Keymap36
+		err := tx.Where("profile_id = ? AND lane = ?", profileID, lane).Take(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("keymap lane not found")
 		}
-		return errors.New("keymap lane not found")
+		if err != nil {
+			return err
+		}
+		mutate(&row)
+		row.ProfileID = profileID
+		row.Lane = lane
+		row.UpdatedAt = nowMillis()
+		return tx.Save(&row).Error
 	})
 }
+
+// ===== 清空类 =====
 
 func (s *Store) ClearPlayHistory() error {
-	return s.WithWrite(func(d *storeData) error { d.PlayHistory = nil; return nil })
-}
-
-func (s *Store) Usage() []TableUsage {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	sizes := estimatedJSONSizes(s.data)
-	return []TableUsage{
-		{TableName: "preferences", RowCount: int64(len(s.data.Preferences)), SizeBytes: sizes["preferences"], Estimated: true},
-		{TableName: "app_settings", RowCount: 1, SizeBytes: sizes["app_settings"], Estimated: true},
-		{TableName: MidiProjectsTable, RowCount: int64(len(s.data.MidiProjects)), SizeBytes: sizes[MidiProjectsTable], Estimated: true},
-		{TableName: MidiEventsTable, RowCount: int64(len(s.data.MidiEvents)), SizeBytes: sizes[MidiEventsTable], Estimated: true},
-		{TableName: MidiProfilesTable, RowCount: int64(len(s.data.MidiProfiles)), SizeBytes: sizes[MidiProfilesTable], Estimated: true},
-		{TableName: Keymap36Table, RowCount: int64(len(s.data.Keymap36)), SizeBytes: sizes[Keymap36Table], Estimated: true},
-		{TableName: PlayHistoryTable, RowCount: int64(len(s.data.PlayHistory)), SizeBytes: sizes[PlayHistoryTable], Estimated: true},
-		{TableName: HotkeyBindingsTable, RowCount: int64(len(s.data.HotkeyBindings)), SizeBytes: sizes[HotkeyBindingsTable], Estimated: true},
-	}
-}
-
-func estimatedJSONSizes(d storeData) map[string]int64 {
-	out := map[string]int64{}
-	add := func(name string, v any) { data, _ := json.Marshal(v); out[name] = int64(len(data)) }
-	add("preferences", d.Preferences)
-	add("app_settings", d.AppSettings)
-	add(MidiProjectsTable, d.MidiProjects)
-	add(MidiEventsTable, d.MidiEvents)
-	add(MidiProfilesTable, d.MidiProfiles)
-	add(Keymap36Table, d.Keymap36)
-	add(PlayHistoryTable, d.PlayHistory)
-	add(HotkeyBindingsTable, d.HotkeyBindings)
-	return out
-}
-
-func nowMillis() int64 { return time.Now().UnixMilli() }
-
-func filterSlice[T any](in []T, keep func(T) bool) []T {
-	out := in[:0]
-	for _, row := range in {
-		if keep(row) {
-			out = append(out, row)
-		}
-	}
-	return out
-}
-
-func containsProjectID(ids map[uint]struct{}, id uint) bool {
-	_, ok := ids[id]
-	return ok
-}
-
-func sortProjects(rows []MidiProject) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].UpdatedAt != rows[j].UpdatedAt {
-			return rows[i].UpdatedAt > rows[j].UpdatedAt
-		}
-		return rows[i].ID > rows[j].ID
-	})
-}
-
-func findProject(rows []MidiProject, id uint) (MidiProject, bool) {
-	for _, row := range rows {
-		if row.ID == id {
-			return row, true
-		}
-	}
-	return MidiProject{}, false
-}
-
-func findProjectByHash(rows []MidiProject, hash string) (MidiProject, bool) {
-	for _, row := range rows {
-		if row.FileHash == hash {
-			return row, true
-		}
-	}
-	return MidiProject{}, false
-}
-
-func findProfile(rows []MidiProfile, id uint) (MidiProfile, bool) {
-	for _, row := range rows {
-		if row.ID == id {
-			return row, true
-		}
-	}
-	return MidiProfile{}, false
-}
-
-func maxProjectID(rows []MidiProject) uint {
-	var max uint
-	for _, r := range rows {
-		if r.ID > max {
-			max = r.ID
-		}
-	}
-	return max
-}
-func maxEventID(rows []MidiEvent) uint {
-	var max uint
-	for _, r := range rows {
-		if r.ID > max {
-			max = r.ID
-		}
-	}
-	return max
-}
-func maxProfileID(rows []MidiProfile) uint {
-	var max uint
-	for _, r := range rows {
-		if r.ID > max {
-			max = r.ID
-		}
-	}
-	return max
-}
-func maxKeymapID(rows []Keymap36) uint {
-	var max uint
-	for _, r := range rows {
-		if r.ID > max {
-			max = r.ID
-		}
-	}
-	return max
-}
-func maxHistoryID(rows []PlayHistory) uint {
-	var max uint
-	for _, r := range rows {
-		if r.ID > max {
-			max = r.ID
-		}
-	}
-	return max
-}
-
-func (s *Store) nextProjectIDLocked() uint {
-	id := s.data.NextIDs.MidiProject
-	s.data.NextIDs.MidiProject++
-	if id == 0 {
-		return s.nextProjectIDLocked()
-	}
-	return id
-}
-func (s *Store) nextEventIDLocked() uint {
-	id := s.data.NextIDs.MidiEvent
-	s.data.NextIDs.MidiEvent++
-	if id == 0 {
-		return s.nextEventIDLocked()
-	}
-	return id
-}
-func (s *Store) nextProfileIDLocked() uint {
-	id := s.data.NextIDs.MidiProfile
-	s.data.NextIDs.MidiProfile++
-	if id == 0 {
-		return s.nextProfileIDLocked()
-	}
-	return id
-}
-func (s *Store) nextKeymapIDLocked() uint {
-	id := s.data.NextIDs.Keymap36
-	s.data.NextIDs.Keymap36++
-	if id == 0 {
-		return s.nextKeymapIDLocked()
-	}
-	return id
-}
-func (s *Store) nextHistoryIDLocked() uint {
-	id := s.data.NextIDs.PlayHistory
-	s.data.NextIDs.PlayHistory++
-	if id == 0 {
-		return s.nextHistoryIDLocked()
-	}
-	return id
-}
-
-func (s *Store) profileIDExistsLocked(id uint) bool {
-	_, ok := findProfile(s.data.MidiProfiles, id)
-	return ok
-}
-func (s *Store) keymapIDExistsLocked(id uint) bool {
-	for _, row := range s.data.Keymap36 {
-		if row.ID == id {
-			return true
-		}
-	}
-	return false
+	return s.db().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&PlayHistory{}).Error
 }

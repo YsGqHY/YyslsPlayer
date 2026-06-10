@@ -13,11 +13,11 @@ import (
 // Config 是 storage.json 的形状。当前只有数据路径一项；将来若加"备份策略"
 // 之类的元配置，请在这里追加字段并保持向后兼容（json:"-,omitempty" 等）。
 type Config struct {
-	// DataPath 用户自定义的数据库文件路径。空字符串表示走 DefaultDBPath。
+	// DataPath 用户自定义的数据文件路径。空字符串表示走 DefaultDBPath。
 	DataPath string `json:"dataPath,omitempty"`
 }
 
-// ConfigManager 管理 storage.json 的读写。它独立于数据库——
+// ConfigManager 管理 storage.json 的读写。它独立于数据文件——
 // 这层不能依赖 Store，否则切换路径时会循环依赖。
 type ConfigManager struct {
 	path string
@@ -67,7 +67,7 @@ func (m *ConfigManager) Get() Config {
 	return m.cfg
 }
 
-// EffectiveDBPath 返回当前生效的数据库文件路径：
+// EffectiveDBPath 返回当前生效的数据文件路径：
 //   - 用户自定义 → 返回该路径
 //   - 未自定义 → 返回 DefaultDBPath
 func (m *ConfigManager) EffectiveDBPath() (string, error) {
@@ -79,7 +79,7 @@ func (m *ConfigManager) EffectiveDBPath() (string, error) {
 }
 
 // SetDataPath 写入新的自定义数据路径并落盘 storage.json。
-// 仅更新配置；数据库迁移由调用方负责（参见 storagesvc.SetCustomPath）。
+// 仅更新配置；数据文件迁移由调用方负责（参见 storagesvc.SetCustomPath）。
 func (m *ConfigManager) SetDataPath(p string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

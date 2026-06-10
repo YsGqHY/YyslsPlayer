@@ -1,9 +1,9 @@
-// Package storage 提供 JSON 文件持久化层。
+// Package storage 提供基于 SQLite 的持久化层。
 //
-// 设计目标：用本地 JSON 数据文件提供单用户工具需要的持久化能力：
-//   - 模型集中在 storage 包内维护
+// 设计目标：用本地 SQLite 数据库（纯 Go modernc 驱动 + GORM）提供单用户工具需要的持久化能力：
+//   - 模型集中在 storage 包内维护，启动时通过 AutoMigrate 建表 / 加列
 //   - 路径在平台默认与用户自定义之间切换（见 config.go）
-//   - 写入通过 filex.WriteAtomic 原子替换数据文件
+//   - WAL 模式 + 单写连接，崩溃安全
 package storage
 
 import (
@@ -17,10 +17,10 @@ import (
 // 改成业务名时，连同 Wails 的 Name 一起改。
 const AppDirName = "YyslsPlayer"
 
-// DBFileName 是 JSON 数据文件名。
-const DBFileName = "yyslsplayer.json"
+// DBFileName 是 SQLite 数据库文件名。
+const DBFileName = "yyslsplayer.db"
 
-// ConfigFileName 路径配置（独立于数据库本身，因此不能存到 db 里——鸡生蛋）。
+// ConfigFileName 路径配置（独立于数据文件本身，避免路径切换时循环依赖）。
 const ConfigFileName = "storage.json"
 
 // ErrNoUserDir 表示无法解析用户数据目录。
@@ -63,7 +63,7 @@ func userDataDir() (string, error) {
 	}
 }
 
-// DefaultDBPath 返回平台默认数据库文件完整路径。
+// DefaultDBPath 返回平台默认数据文件完整路径。
 // 该路径所在目录可能尚不存在；调用者通过 ensureDir 创建。
 func DefaultDBPath() (string, error) {
 	dir, err := userDataDir()
@@ -74,7 +74,7 @@ func DefaultDBPath() (string, error) {
 }
 
 // configFilePath 返回 storage.json 的完整路径。
-// 它和默认数据库放在同一目录，但不受用户切换数据路径影响。
+// 它和默认数据文件放在同一目录，但不受用户切换数据路径影响。
 func configFilePath() (string, error) {
 	dir, err := userDataDir()
 	if err != nil {

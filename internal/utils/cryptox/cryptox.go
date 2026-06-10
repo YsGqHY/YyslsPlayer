@@ -41,7 +41,7 @@ const (
 // 避免 cryptox → storage 的反向依赖。改业务名时同步两处。
 const AppDirName = "YyslsPlayer"
 
-// MasterKeyFileName 主密钥文件；与数据库默认目录平级。
+// MasterKeyFileName 主密钥文件；与默认数据文件目录平级。
 const MasterKeyFileName = ".master.key"
 
 var (
