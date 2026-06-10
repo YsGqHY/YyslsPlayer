@@ -4,6 +4,7 @@ frontend/dist
 frontend/node_modules
 frontend/bindings
 frontend/tsconfig.tsbuildinfo
+.gocache/
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 .claude
 /.idea/
@@ -24,3 +25,4 @@ docs
 Thumbs.db
 
 CLAUDE.md
+.narrafork
