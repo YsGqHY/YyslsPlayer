@@ -83,6 +83,7 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
   const pendingTerminalPositionRef = useRef<number | null>(null);
   const onPlayerStateRef = useRef<UsePerformPanelOptions['onPlayerState']>(options.onPlayerState);
   const onStartRef = useRef<UsePerformPanelOptions['onStart']>(options.onStart);
+  const prevProjectIdRef = useRef<number | undefined>(plan?.projectId);
   // 始终指向最新的 start/stop/pause/resume，供全局热键处理器调用（避免闭包过期）。
   const actionsRef = useRef<{ start: () => void; pause: () => void; resume: () => void; stop: () => void }>({
     start: () => {},
@@ -159,8 +160,24 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
     if (plan) {
       const durationMs = snapshot.durationMs || position.durationMs || plan.durationMs;
       setSeekPositionMs((value) => clampPosition(value, durationMs));
+      // 切换到不同歌曲时重置进度和演奏状态
+      if (plan.projectId !== prevProjectIdRef.current) {
+        prevProjectIdRef.current = plan.projectId;
+        const oldSessionId = sessionRef.current;
+        sessionRef.current = '';
+        setSnapshot(INITIAL_STATE);
+        setPosition(INITIAL_POSITION);
+        setError(null);
+        setCountdown(0);
+        setSeekPositionMs(0);
+        setBusy(false);
+        if (oldSessionId) {
+          void PlayerService.stop(oldSessionId).catch(() => undefined);
+        }
+      }
       return;
     }
+    prevProjectIdRef.current = undefined;
     sessionRef.current = '';
     setSnapshot(INITIAL_STATE);
     setPosition(INITIAL_POSITION);
