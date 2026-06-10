@@ -61,6 +61,49 @@ func TestDryRunReleasesSharedModifierAfterEachPress(t *testing.T) {
 	assertEvent(t, result.Events[7], PhysicalUp, "Shift", true)
 }
 
+func TestChordsUseTightOptions(t *testing.T) {
+	driver := &optionRecordingDriver{}
+	svc := New(driver)
+	result, err := svc.Run(context.Background(), []KeyAction{action(ActionPress, keyA(), shift())}, RunOptions{InterKeyDelayMs: 25, ModifierHoldDelayMs: 40, DryRunLogLimit: 10})
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.TotalEvents != 4 {
+		t.Fatalf("result = %+v", result)
+	}
+	options := driver.Options()
+	if len(options) != 4 {
+		t.Fatalf("options len = %d, want 4", len(options))
+	}
+	for i, option := range options {
+		if option.InterKeyDelayMs != 0 || option.ModifierHoldDelayMs != 0 {
+			t.Fatalf("option[%d] = %+v, want tight chord options", i, option)
+		}
+	}
+}
+
+func TestChordsReleaseUseTightOptions(t *testing.T) {
+	driver := &optionRecordingDriver{}
+	svc := New(driver)
+	svc.pressed = map[string]*pressedEntry{
+		keyID(keyA()): {key: keyA(), count: 1, order: 1},
+		keyID(shift()): {key: shift(), count: 1, order: 2, modifier: true},
+	}
+	if err := svc.apply(context.Background(), action(ActionRelease, keyA(), shift()), RunOptions{InterKeyDelayMs: 25, ModifierHoldDelayMs: 40}, newEventCollector(10)); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	options := driver.Options()
+	if len(options) != 2 {
+		t.Fatalf("options len = %d, want 2", len(options))
+	}
+	for i, option := range options {
+		if option.InterKeyDelayMs != 0 || option.ModifierHoldDelayMs != 0 {
+			t.Fatalf("option[%d] = %+v, want tight chord options", i, option)
+		}
+	}
+}
+
+
 func TestReleaseAllClearsPressedSetInReverseOrder(t *testing.T) {
 	svc := New(NewStubDriver())
 	if _, err := svc.Apply(context.Background(), action(ActionPress, keyA()), RunOptions{DryRun: true}); err != nil {
@@ -180,6 +223,19 @@ func (d *fakeDriver) Send(_ context.Context, event KeyEvent, _ RunOptions) error
 		return errFakeSend
 	}
 	return nil
+}
+
+type optionRecordingDriver struct {
+	options []RunOptions
+}
+
+func (d *optionRecordingDriver) Send(_ context.Context, _ KeyEvent, opts RunOptions) error {
+	d.options = append(d.options, opts)
+	return nil
+}
+
+func (d *optionRecordingDriver) Options() []RunOptions {
+	return append([]RunOptions(nil), d.options...)
 }
 
 func action(kind ActionKind, key Key, modifiers ...Key) KeyAction {

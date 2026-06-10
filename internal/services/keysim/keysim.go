@@ -124,33 +124,38 @@ func (s *Service) apply(ctx context.Context, action KeyAction, opts RunOptions, 
 			_, err := s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), opts, collector)
 			return err
 		}
-		pressedModifier := false
+		chordOpts := tightChordOptions(opts)
 		for _, modifier := range action.Modifiers {
-			pressed, err := s.downLocked(ctx, eventFromAction(action, modifier, PhysicalDown, true), opts, collector)
-			if err != nil {
+			if _, err := s.downLocked(ctx, eventFromAction(action, modifier, PhysicalDown, true), chordOpts, collector); err != nil {
 				return err
 			}
-			pressedModifier = pressedModifier || pressed
 		}
-		if pressedModifier && !opts.DryRun && opts.ModifierHoldDelayMs > 0 {
-			time.Sleep(time.Duration(opts.ModifierHoldDelayMs) * time.Millisecond)
-		}
-		if _, err := s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), opts, collector); err != nil {
+		if _, err := s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), chordOpts, collector); err != nil {
 			return err
 		}
-		releaseOpts := opts
-		releaseOpts.InterKeyDelayMs = 0
-		if err := s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), releaseOpts, collector); err != nil {
+		if err := s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), chordOpts, collector); err != nil {
 			return err
 		}
 		for i := len(action.Modifiers) - 1; i >= 0; i-- {
-			if err := s.upLocked(ctx, eventFromAction(action, action.Modifiers[i], PhysicalUp, true), releaseOpts, collector); err != nil {
+			if err := s.upLocked(ctx, eventFromAction(action, action.Modifiers[i], PhysicalUp, true), chordOpts, collector); err != nil {
 				return err
 			}
 		}
 		return nil
 	case ActionRelease:
-		return s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), opts, collector)
+		if len(action.Modifiers) == 0 {
+			return s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), opts, collector)
+		}
+		chordOpts := tightChordOptions(opts)
+		if err := s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), chordOpts, collector); err != nil {
+			return err
+		}
+		for i := len(action.Modifiers) - 1; i >= 0; i-- {
+			if err := s.upLocked(ctx, eventFromAction(action, action.Modifiers[i], PhysicalUp, true), chordOpts, collector); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrInvalidAction, action.Action)
 	}
@@ -338,6 +343,13 @@ func normalizeOptions(opts RunOptions) RunOptions {
 		opts.ModifierHoldDelayMs = DefaultModifierHoldDelayMs
 	}
 	return opts
+}
+
+func tightChordOptions(opts RunOptions) RunOptions {
+	chord := opts
+	chord.InterKeyDelayMs = 0
+	chord.ModifierHoldDelayMs = 0
+	return chord
 }
 
 func keyID(key Key) string {
