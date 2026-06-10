@@ -16,4 +16,6 @@ func Register() {
 	application.RegisterEvent[player.PlayerErrorDTO](player.EventError)
 	application.RegisterEvent[hotkey.TriggeredDTO](hotkey.EventTriggered)
 	application.RegisterEvent[midi.FilesDroppedDTO](midi.EventFilesDropped)
+
+	registerCompletionEvents()
 }

@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "YyslsPlayer"
+  APP_VERSION: "1.1.0"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
@@ -11,34 +12,108 @@ includes:
 
 tasks:
   build:
-    summary: Builds the Windows application
+    summary: Builds both lite and completion Windows executables in production, or a single dev executable when DEV=true
     cmds:
-      - task: windows:build
+      - task: '{{if eq .DEV "true"}}build:single{{else}}build:all{{end}}'
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          DEV:
+            ref: .DEV
+
+  build:single:
+    summary: Builds one Windows executable flavor (default lite)
+    cmds:
+      - powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/dist -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force frontend/bindings -ErrorAction SilentlyContinue; exit 0"
+      - task: windows:build:single
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          DEV:
+            ref: .DEV
+
+  build:all:
+    summary: Builds lite and completion Windows executables
+    cmds:
+      - task: windows:build:all
         vars:
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
 
   build:compressed:
-    summary: Builds the Windows application and compresses the executable with UPX
+    summary: Builds lite and completion Windows executables and compresses them with UPX
     cmds:
-      - task: windows:build
+      - task: build
         vars:
           COMPRESS_EXE: "true"
+          DEV:
+            ref: .DEV
 
   package:
-    summary: Packages the Windows application
+    summary: Packages both lite and completion Windows installers in production, or a single installer when DEV=true
     cmds:
+      - task: '{{if eq .DEV "true"}}package:single{{else}}package:all{{end}}'
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          INSTALLER_OUTPUT:
+            ref: .INSTALLER_OUTPUT
+          DEV:
+            ref: .DEV
+
+  package:single:
+    summary: Packages one Windows installer flavor (default lite)
+    cmds:
+      - powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/dist,frontend/bindings -ErrorAction SilentlyContinue; exit 0"
       - task: windows:package
         vars:
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          INSTALLER_OUTPUT:
+            ref: .INSTALLER_OUTPUT
+
+  package:all:
+    summary: Packages lite and completion Windows installers
+    cmds:
+      - task: package:single
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR: "lite"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-lite.exe"
+          INSTALLER_OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-{{.APP_VERSION}}-lite-setup.exe"
+      - task: package:single
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR: "completion"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-completion.exe"
+          INSTALLER_OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-{{.APP_VERSION}}-completion-setup.exe"
 
   package:compressed:
-    summary: Packages the Windows application with a UPX-compressed executable
+    summary: Packages lite and completion Windows installers with UPX-compressed executables
     cmds:
-      - task: windows:package
+      - task: package
         vars:
           COMPRESS_EXE: "true"
+          DEV:
+            ref: .DEV
 
   run:
     summary: Runs the Windows application
@@ -46,6 +121,17 @@ tasks:
       - task: windows:run
 
   dev:
-    summary: Runs the Windows application in development mode
+    summary: Runs the Windows application in development mode (default lite)
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}{{if eq .FLAVOR "completion"}} -tags production,completion{{end}}
+    vars:
+      FLAVOR: '{{.FLAVOR | default "lite"}}'
+    env:
+      VITE_FLAVOR: '{{.FLAVOR | default "lite"}}'
+
+  dev:completion:
+    summary: Runs the Windows application in development mode with transcription (completion)
+    cmds:
+      - task: dev
+        vars:
+          FLAVOR: "completion"

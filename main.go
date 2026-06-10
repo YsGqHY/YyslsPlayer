@@ -11,6 +11,9 @@ import (
 var assets embed.FS
 
 func main() {
+	if err := app.EnsureAdminRelaunch(); err != nil {
+		log.Fatal(err)
+	}
 	if err := app.Run(assets); err != nil {
 		log.Fatal(err)
 	}

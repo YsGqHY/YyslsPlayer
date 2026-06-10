@@ -35,7 +35,7 @@ func Run(assets embed.FS) error {
 
 	// —— 持久化层启动顺序 ——
 	// 1) 读 storage.json：用户自定义路径 / 默认路径
-	// 2) 尝试打开当前生效的数据文件；若自定义路径失效，则自动回退到默认 JSON 存储
+	// 2) 尝试打开当前生效的数据文件；若自定义路径失效，则自动回退到默认 SQLite 数据库
 	// 3) 包成 Holder，业务 service 全部走 holder.Current() 拿活跃存储
 	cfgMgr, err := storage.LoadConfig()
 	if err != nil {
@@ -48,24 +48,30 @@ func Run(assets embed.FS) error {
 	holder := storage.NewHolder(db)
 	logx.For("app").Info("storage opened", "path", dbPath)
 
-	playerSvc := player.New(keysim.New(nil))
+	ksDriver := keysim.NewDefaultDriver()
+	playerKeysimSvc := keysim.New(ksDriver)
+	playerSvc := player.New(playerKeysimSvc)
 
 	// 全局热键服务：OS 级快捷键控制演奏（切到游戏也生效）。
 	// playback 类动作直接作用于 playerSvc，紧急松键最关键。
 	hotkeySvc := hotkey.New(holder, playerSvc)
 
+	services := []application.Service{
+		application.NewService(preferences.New(holder)),
+		application.NewService(appsettings.New(holder)),
+		application.NewService(appearance.New()),
+		application.NewService(storagesvc.New(holder, cfgMgr)),
+		application.NewService(midi.New(holder)),
+		application.NewService(playerSvc),
+		application.NewService(hotkeySvc),
+	}
+	// completion 版本会追加 transcription 等服务；lite 版本保持原样。
+	services, transcriptionSvc := registerCompletionServices(services, holder)
+
 	app := application.New(application.Options{
 		Name:        "YyslsPlayer",
 		Description: "燕云流音：面向《燕云十六声》36 键模式的 MIDI 导入、预览与按键模拟演奏工具",
-		Services: []application.Service{
-			application.NewService(preferences.New(holder)),
-			application.NewService(appsettings.New(holder)),
-			application.NewService(appearance.New()),
-			application.NewService(storagesvc.New(holder, cfgMgr)),
-			application.NewService(midi.New(holder)),
-			application.NewService(playerSvc),
-			application.NewService(hotkeySvc),
-		},
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
@@ -76,6 +82,16 @@ func Run(assets embed.FS) error {
 	hotkeySvc.AttachEmitter(hotkey.EventEmitterFunc(func(name string, payload any) {
 		app.Event.Emit(name, payload)
 	}))
+
+	// transcription service：completion 版本需要 emitter 和生命周期管理
+	if transcriptionSvc != nil {
+		transcriptionSvc.SetApp(app)
+		transcriptionSvc.AttachEmitter(func(name string, payload any) {
+			app.Event.Emit(name, payload)
+		})
+		transcriptionSvc.Start()
+		defer transcriptionSvc.Shutdown()
+	}
 
 	// 注册全局热键（读持久化绑定 + OS 注册 + 启动消息循环）。
 	// 注册失败逐项标记，不阻断应用启动。

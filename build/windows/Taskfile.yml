@@ -12,7 +12,39 @@ vars:
 
 tasks:
   build:
-    summary: Builds the Windows application
+    summary: Builds both lite and completion Windows executables in production, or a single dev executable when DEV=true
+    cmds:
+      - task: '{{if eq .DEV "true"}}build:single{{else}}build:all{{end}}'
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          DEV:
+            ref: .DEV
+
+  build:all:
+    summary: Builds lite and completion Windows executables
+    cmds:
+      - powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/dist,frontend/bindings -ErrorAction SilentlyContinue; exit 0"
+      - task: build:single
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR: "lite"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-lite.exe"
+      - powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/dist,frontend/bindings -ErrorAction SilentlyContinue; exit 0"
+      - task: build:single
+        vars:
+          COMPRESS_EXE:
+            ref: .COMPRESS_EXE
+          FLAVOR: "completion"
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-completion.exe"
+
+  build:single:
+    summary: Builds one Windows executable flavor (default lite)
     deps:
       - task: common:go:mod:tidy
       - task: common:build:frontend
@@ -23,6 +55,8 @@ tasks:
             ref: .OBFUSCATED
           DEV:
             ref: .DEV
+          FLAVOR:
+            ref: .FLAVOR
       - task: common:generate:icons
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
@@ -33,11 +67,14 @@ tasks:
       - task: generate:syso
         vars:
           ARCH: '{{.ARCH}}'
-      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"'
-      - '{{if eq .COMPRESS_EXE "true"}}upx --best --lzma "{{.BIN_DIR}}/{{.APP_NAME}}.exe"{{else}}true{{end}}'
-      - powershell -NoProfile -Command "Remove-Item -Force *.syso -ErrorAction SilentlyContinue"
+      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.TARGET_OUTPUT}}"'
+      - '{{if eq .COMPRESS_EXE "true"}}upx --best --lzma "{{.TARGET_OUTPUT}}"{{else}}true{{end}}'
+      - powershell -NoProfile -Command "Remove-Item -Force *.syso -ErrorAction SilentlyContinue; exit 0"
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
+      FLAVOR_TAG: '{{if eq .FLAVOR "completion"}}completion{{end}}'
+      EFFECTIVE_EXTRA_TAGS: '{{if .EXTRA_TAGS}}{{.EXTRA_TAGS}}{{if .FLAVOR_TAG}},{{.FLAVOR_TAG}}{{end}}{{else}}{{.FLAVOR_TAG}}{{end}}'
+      TARGET_OUTPUT: '{{if .OUTPUT}}{{.OUTPUT}}{{else}}{{.BIN_DIR}}/{{.APP_NAME}}.exe{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EFFECTIVE_EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EFFECTIVE_EXTRA_TAGS}},{{end}}{{end}}{{.EFFECTIVE_EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EFFECTIVE_EXTRA_TAGS}},{{.EFFECTIVE_EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
     env:
       GOOS: windows
       GOARCH: '{{.ARCH | default ARCH}}'
@@ -50,6 +87,12 @@ tasks:
           INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          INSTALLER_OUTPUT:
+            ref: .INSTALLER_OUTPUT
 
   generate:syso:
     summary: Generates the Windows `.syso` file
@@ -63,20 +106,29 @@ tasks:
     summary: Creates the NSIS installer
     dir: build/windows/nsis
     deps:
-      - task: build
+      - task: build:single
         vars:
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
         msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"
     cmds:
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
-      - makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+      - makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.TARGET_OUTPUT_WINDOWS}}" -DARG_WAILS_INSTALLER_OUTPUT="{{.ROOT_DIR}}\{{.TARGET_INSTALLER_OUTPUT_WINDOWS}}" project.nsi
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
       ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
+      TARGET_OUTPUT: '{{if .OUTPUT}}{{.OUTPUT}}{{else}}{{.BIN_DIR}}/{{.APP_NAME}}.exe{{end}}'
+      TARGET_OUTPUT_WINDOWS: '{{.TARGET_OUTPUT | replace "/" "\\"}}'
+      DEFAULT_INSTALLER_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}-{{.ARCH | default ARCH}}-installer.exe'
+      TARGET_INSTALLER_OUTPUT: '{{if .INSTALLER_OUTPUT}}{{.INSTALLER_OUTPUT}}{{else}}{{.DEFAULT_INSTALLER_OUTPUT}}{{end}}'
+      TARGET_INSTALLER_OUTPUT_WINDOWS: '{{.TARGET_INSTALLER_OUTPUT | replace "/" "\\"}}'
 
   run:
     summary: Runs the Windows executable
@@ -86,12 +138,18 @@ tasks:
   sign:
     summary: Signs the Windows executable
     deps:
-      - task: build
+      - task: build:single
         vars:
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.exe" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
+      - wails3 tool sign --input "{{.TARGET_OUTPUT}}" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
+    vars:
+      TARGET_OUTPUT: '{{if .OUTPUT}}{{.OUTPUT}}{{else}}{{.BIN_DIR}}/{{.APP_NAME}}.exe{{end}}'
     preconditions:
       - sh: '[ -n "{{.SIGN_CERTIFICATE}}" ] || [ -n "{{.SIGN_THUMBPRINT}}" ]'
         msg: "Either SIGN_CERTIFICATE or SIGN_THUMBPRINT is required. Set it in build/windows/Taskfile.yml"
@@ -104,10 +162,18 @@ tasks:
           INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
           COMPRESS_EXE:
             ref: .COMPRESS_EXE
+          FLAVOR:
+            ref: .FLAVOR
+          OUTPUT:
+            ref: .OUTPUT
+          INSTALLER_OUTPUT:
+            ref: .INSTALLER_OUTPUT
     vars:
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
+      DEFAULT_INSTALLER_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}-{{.ARCH | default ARCH}}-installer.exe'
+      TARGET_INSTALLER_OUTPUT: '{{if .INSTALLER_OUTPUT}}{{.INSTALLER_OUTPUT}}{{else}}{{.DEFAULT_INSTALLER_OUTPUT}}{{end}}'
     cmds:
-      - wails3 tool sign --input "build/windows/nsis/{{.APP_NAME}}-installer.exe" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
+      - wails3 tool sign --input "{{.TARGET_INSTALLER_OUTPUT}}" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
     preconditions:
       - sh: '[ -n "{{.SIGN_CERTIFICATE}}" ] || [ -n "{{.SIGN_THUMBPRINT}}" ]'
         msg: "Either SIGN_CERTIFICATE or SIGN_THUMBPRINT is required. Set it in build/windows/Taskfile.yml"
