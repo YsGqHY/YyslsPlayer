@@ -75,7 +75,7 @@ export const StorageService = {
     };
   },
 
-  // newPath 必须是数据库 .db 文件的完整路径（含文件名）。
+  // newPath 必须是 JSON 数据文件的完整路径（含文件名）。
   async setCustomPath(newPath: string): Promise<void> {
     await Binding.SetCustomPath(newPath);
   },

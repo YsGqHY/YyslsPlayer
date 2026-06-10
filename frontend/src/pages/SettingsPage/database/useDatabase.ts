@@ -26,7 +26,7 @@ export interface UseDatabaseResult {
   clearTable: (table: TableInfo) => Promise<void>;
 }
 
-// 数据库子页面 ViewModel：
+// 数据存储子页面 ViewModel：
 //   - mount 同时拉 stats 与 tableStats
 //   - changePath / resetPath / clearTable 走后端，期间 status 标当前操作
 //   - 完成后再次刷新（路径变会让 tableStats 重算；清表只重算 tableStats 即可）

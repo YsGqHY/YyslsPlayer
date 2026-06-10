@@ -1,6 +1,6 @@
 import type { SxProps, Theme } from '@mui/material';
 
-// 数据库子页面专属样式：路径展示卡片 + 操作按钮 + 状态文案 + 图表 + 表行。
+// 数据存储子页面专属样式：路径展示卡片 + 操作按钮 + 状态文案 + 图表 + 表行。
 export const databaseStyles = (theme: Theme): Record<string, SxProps<Theme>> => {
   const fp = theme.palette.foundation;
   return {

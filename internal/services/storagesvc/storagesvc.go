@@ -36,18 +36,18 @@ type Stats struct {
 }
 
 // TableInfo 单张表的展示元数据 + 实际占用。
-// 元数据来自 storage.AllModels（labelKey / clearable），用量由 JSON 快照估算得出。
+// 元数据来自 storage.AllModels（labelKey / clearable），用量按行数占比估算得出。
 type TableInfo struct {
 	Name      string `json:"name"`      // 数据集合名（如 'preferences'）
 	LabelKey  string `json:"labelKey"`  // i18n key 后缀（前端拼 settings.database.tables.<key>.label）
 	Clearable bool   `json:"clearable"` // 是否允许 ClearTable
 	RowCount  int64  `json:"rowCount"`
 	SizeBytes int64  `json:"sizeBytes"`
-	Estimated bool   `json:"estimated"` // JSON 存储按序列化片段估算，占用值始终为估算
+	Estimated bool   `json:"estimated"` // SQLite 无每表精确字节数，按文件大小行数占比估算
 }
 
 // TableStats 整体快照。Total 是所有表的占用之和；
-// 与 Stats.SizeBytes 不同 —— 后者是整个 JSON 文件，前者是各数据集合片段估算和。
+// 与 Stats.SizeBytes 不同 —— 后者是整个数据库文件，前者是各表按行数占比的估算和。
 type TableStats struct {
 	TotalBytes int64       `json:"totalBytes"`
 	Tables     []TableInfo `json:"tables"`
@@ -74,7 +74,7 @@ func (s *Service) GetStats(_ context.Context) (Stats, error) {
 
 // GetTableStats 收集每类已注册数据的行数 + 估算占用。
 //
-// JSON 存储没有页级统计；这里按各数据片段序列化大小估算（前端会标注"估算"）。
+// SQLite 没有便捷的每表精确字节统计；这里按各表行数占总文件大小的比例估算（前端会标注"估算"）。
 func (s *Service) GetTableStats(ctx context.Context) (TableStats, error) {
 	_ = ctx
 	descs := storage.AllModels
@@ -126,12 +126,12 @@ func (s *Service) ClearTable(ctx context.Context, tableName string) error {
 	}
 }
 
-// SetCustomPath 把 JSON 数据文件迁移到新位置。
+// SetCustomPath 把 SQLite 数据库迁移到新位置。
 //
 // 流程（保证不丢数据）：
 //  1. 校验目标目录可写
-//  2. 关闭当前句柄
-//  3. 复制 JSON 文件到新位置
+//  2. 关闭当前句柄（关闭时 WAL 已 checkpoint 回主库）
+//  3. 复制数据库文件（含残留 -wal/-shm）到新位置
 //  4. 在新位置打开并补齐默认状态
 //  5. 通过 → 删旧文件 + 写 storage.json + 替换 holder
 //  6. 任意步骤失败 → 删除新位置已写文件 + 重开旧数据文件 + 报错
@@ -185,10 +185,12 @@ func (s *Service) SetCustomPath(_ context.Context, newPath string) error {
 	}
 
 	_ = os.Remove(oldPath)
+	_ = os.Remove(oldPath + "-wal")
+	_ = os.Remove(oldPath + "-shm")
 	return nil
 }
 
-// ResetPath 把数据库迁回平台默认位置。
+// ResetPath 把数据文件迁回平台默认位置。
 func (s *Service) ResetPath(ctx context.Context) error {
 	def, err := storage.DefaultDBPath()
 	if err != nil {
@@ -232,7 +234,20 @@ func copyDataFile(src, dst string) ([]string, error) {
 	if err := copyFile(src, dst); err != nil {
 		return nil, err
 	}
-	return []string{dst}, nil
+	written := []string{dst}
+	// SQLite WAL/SHM 边车文件：关闭前已 checkpoint(TRUNCATE) 回主库，
+	// 正常情况下它们为空或不存在；仍尽力一并复制，避免极端时序下遗漏。
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(src + suffix); err != nil {
+			continue
+		}
+		if err := copyFile(src+suffix, dst+suffix); err != nil {
+			removeAll(written)
+			return nil, err
+		}
+		written = append(written, dst+suffix)
+	}
+	return written, nil
 }
 
 func copyFile(src, dst string) error {

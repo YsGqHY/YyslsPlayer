@@ -11,11 +11,10 @@ import { useDatabase, type DatabaseStatus } from './useDatabase';
 import { databaseStyles } from './Database.styles';
 import { settingsPageStyles } from '../SettingsPage.styles';
 
-// 数据库子页面：
-//   1) 路径与总占用 + 切换 / 重置（原生 dialog）
-//   2) 双图：环形图（占比）+ 水平条形图（精确字节）
-//   3) 表清单：行展示 行数 / 字节，clearable=true 的允许逐项清空（带原生确认）
-//
+// 数据存储子页面：
+// - 展示当前路径、默认路径、文件大小
+// - 支持选择新位置 / 恢复默认
+// - 展示集合级统计和可清空集合
 // 文案 namespace：settings.database.*。
 // 表名 → 标签 key 映射：i18n 路径为 settings.database.tables.<labelKey>.{label,description}。
 export const Database = () => {
@@ -30,7 +29,7 @@ export const Database = () => {
     vm.status.kind === 'resetting' ||
     vm.status.kind === 'clearing';
 
-  // 切换路径：原生「另存为」对话框选目标 .db。
+  // 切换路径：原生「另存为」对话框选目标 JSON 数据文件。
   const handleChange = async (): Promise<void> => {
     if (busy) return;
     const next = await NativeDialogs.saveFile({

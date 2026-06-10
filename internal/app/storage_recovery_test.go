@@ -14,9 +14,9 @@ func TestOpenStorageWithRecoveryFallsBackFromInvalidCustomPath(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", appData)
 	t.Setenv("HOME", appData)
 
-	customPath := filepath.Join(t.TempDir(), "legacy.db")
-	if err := os.WriteFile(customPath, []byte("SQLite format 3\x00legacy"), 0o644); err != nil {
-		t.Fatalf("write legacy db: %v", err)
+	customPath := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(customPath, []byte("not-json"), 0o644); err != nil {
+		t.Fatalf("write legacy data file: %v", err)
 	}
 
 	cfgMgr, err := storage.LoadConfig()

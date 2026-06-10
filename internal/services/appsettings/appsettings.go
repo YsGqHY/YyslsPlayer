@@ -27,7 +27,11 @@ func (s *Service) store() *storage.Store {
 
 func (s *Service) Get(_ context.Context) (Snapshot, error) {
 	row := s.store().GetAppSettings()
-	return Snapshot{ThemeChoice: row.ThemeChoice, CustomTheme: row.CustomTheme, LocaleChoice: row.LocaleChoice}, nil
+	return Snapshot{
+		ThemeChoice:  row.ThemeChoice,
+		CustomTheme:  row.CustomTheme,
+		LocaleChoice: row.LocaleChoice,
+	}, nil
 }
 
 func (s *Service) SetThemeChoice(_ context.Context, choice string) error {

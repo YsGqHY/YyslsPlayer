@@ -24,7 +24,7 @@ func (f EventEmitterFunc) Emit(name string, payload any) { f(name, payload) }
 // Service 是 Wails 服务，方法自动暴露给前端。
 //
 // 职责：
-//   - 持久化每个动作的全局热键绑定（JSON Store，holder.Current()）
+//   - 持久化每个动作的全局热键绑定（SQLite，holder.Current()）
 //   - 把启用的绑定解析并 Apply 到平台 manager（OS 注册）
 //   - 收到 OS 热键触发时：playback 类动作直接调用 player（游戏聚焦也可靠生效），
 //     并向前端 Emit hotkey:triggered 供导航 / UI 反馈
