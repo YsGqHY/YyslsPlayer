@@ -1,12 +1,14 @@
 import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded';
 import { lazy } from 'react';
 import { HomePage } from '@/pages/HomePage/HomePage';
 import { HomePageSkeleton } from '@/pages/HomePage/HomePage.skeleton';
 import { EditorPage } from '@/pages/EditorPage';
 import { LibraryPage } from '@/pages/LibraryPage';
 import { SettingsPageSkeleton } from '@/pages/SettingsPage/SettingsPage.skeleton';
+import { FEATURES } from '@/shared/featureFlags';
 import type { RouteDefinition } from '@/router';
 
 // SettingsPage 走 React.lazy：调色板编辑器较重，首屏不进入 main bundle。
@@ -17,6 +19,12 @@ import type { RouteDefinition } from '@/router';
 const SettingsPage = lazy(async () => {
   const mod = await import('@/pages/SettingsPage/SettingsPage');
   return { default: mod.SettingsPage };
+});
+
+// TranscriptionPage 走 React.lazy：completion 版本仅在开启时加载。
+const TranscriptionPage = lazy(async () => {
+  const mod = await import('@/pages/TranscriptionPage/TranscriptionPage');
+  return { default: mod.TranscriptionPage };
 });
 
 // 路由表是唯一事实源：
@@ -45,6 +53,15 @@ export const routes: RouteDefinition[] = [
     icon: LibraryMusicRoundedIcon,
     element: <LibraryPage />,
     slot: 'primary',
+    keepAlive: true,
+  },
+  {
+    id: 'transcription',
+    labelKey: 'route.transcription',
+    label: 'Transcription',
+    icon: AudioFileRoundedIcon,
+    element: <TranscriptionPage />,
+    slot: FEATURES.transcription ? 'primary' : 'hidden',
     keepAlive: true,
   },
   {

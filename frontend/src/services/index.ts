@@ -65,3 +65,18 @@ export {
   type HotkeyTriggeredEvent,
 } from './hotkey/HotkeyService';
 export { recordFromEvent, type RecordedAccelerator } from './hotkey/keycodes';
+export {
+  TranscriptionService,
+  DEFAULT_TRANSCRIPTION_CONFIG,
+  type TranscriptionConfig,
+  type TranscriptionTask,
+  type TranscriptionNote,
+  type TranscriptionAnalysis,
+  type TranscriptionTaskDetail,
+  type AudioProbeResult,
+  type TranscriptionCapability,
+  type MidiProjectImportResult,
+  type TranscriptionProgress,
+  type TranscriptionResult,
+  type TranscriptionError,
+} from './transcription/TranscriptionService';

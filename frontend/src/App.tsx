@@ -4,6 +4,7 @@ import { registerHomePageLocales } from '@/pages/HomePage/lang';
 import { registerLibraryPageLocales } from '@/pages/LibraryPage';
 import { registerEditorPageLocales } from '@/pages/EditorPage';
 import { registerSettingsPageLocales } from '@/pages/SettingsPage/lang';
+import { registerTranscriptionPageLocales } from '@/pages/TranscriptionPage';
 import { PreferencesProvider } from '@/preferences';
 import { RouterProvider } from '@/router';
 import { routes } from '@/routes';
@@ -22,6 +23,7 @@ registerHomePageLocales();
 registerLibraryPageLocales();
 registerEditorPageLocales();
 registerSettingsPageLocales();
+registerTranscriptionPageLocales();
 
 // Provider 嵌套顺序（自外向内）：
 //  ① I18nProvider —— 文案是任何子组件都可能用到的最基础上下文

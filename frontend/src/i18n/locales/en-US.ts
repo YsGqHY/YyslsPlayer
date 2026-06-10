@@ -26,6 +26,7 @@ export const enUS: Locale = {
     route: {
       home: 'Home',
       library: 'Library',
+      transcription: 'Transcription',
       editor: 'Editor',
       settings: 'Settings',
     },
@@ -105,7 +106,6 @@ export const enUS: Locale = {
       loading: 'Loading performance plan…',
       status: 'State {{state}} · {{progress}}',
       mode: {
-        dryRun: 'Dry-run',
         real: 'Real input',
       },
       actions: {
@@ -116,8 +116,6 @@ export const enUS: Locale = {
         releaseAll: 'Release all',
       },
       fields: {
-        dryRun: 'Dry-run mode',
-        dryRunHelper: 'Do not inject system keys; only run scheduler and logging.',
         realHelper: 'Injects keyboard input. Switch the game to 36-key performance mode first.',
         lookahead: 'Lookahead ms',
       },

@@ -33,6 +33,7 @@ export const zhCN: Locale = {
     route: {
       home: '首页',
       library: '曲库',
+      transcription: '扒谱',
       editor: '编辑器',
       settings: '设置',
     },
@@ -112,7 +113,6 @@ export const zhCN: Locale = {
       loading: '演奏计划加载中…',
       status: '状态 {{state}} · 进度 {{progress}}',
       mode: {
-        dryRun: 'Dry-run',
         real: '实际按键',
       },
       actions: {
@@ -123,8 +123,6 @@ export const zhCN: Locale = {
         releaseAll: '紧急释放',
       },
       fields: {
-        dryRun: 'Dry-run 模式',
-        dryRunHelper: '不注入系统按键，只走调度和日志链路。',
         realHelper: '会调用系统按键模拟，请先切到游戏 36 键模式。',
         lookahead: 'Lookahead ms',
       },

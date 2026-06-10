@@ -6,6 +6,12 @@ export const AppEvents = {
   PlayerError: 'player:error',
   HotkeyTriggered: 'hotkey:triggered',
   MidiFilesDropped: 'midi:filesDropped',
+  TranscriptionTaskProgress: 'transcription:task:progress',
+  TranscriptionTaskCompleted: 'transcription:task:completed',
+  TranscriptionTaskFailed: 'transcription:task:failed',
+  TranscriptionTaskCancelled: 'transcription:task:cancelled',
+  TranscriptionFfmpegInstalled: 'transcription.ffmpeg.installed',
+  TranscriptionFfmpegInstallFailed: 'transcription.ffmpeg.failed',
 } as const;
 
 export type AppEventName = (typeof AppEvents)[keyof typeof AppEvents];
