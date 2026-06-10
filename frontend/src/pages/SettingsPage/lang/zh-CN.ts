@@ -40,7 +40,7 @@ export const settingsPageZhCN: Messages = {
       },
       database: {
         label: '数据存储',
-        description: '数据库位置与占用空间',
+        description: '数据文件位置与占用空间',
       },
     },
     themes: {

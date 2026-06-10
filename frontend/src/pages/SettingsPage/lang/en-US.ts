@@ -37,7 +37,7 @@ export const settingsPageEnUS: Messages = {
       },
       database: {
         label: 'Data storage',
-        description: 'Database location and disk usage',
+        description: 'Data file location and disk usage',
       },
     },
     themes: {

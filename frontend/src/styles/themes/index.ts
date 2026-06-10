@@ -14,7 +14,7 @@ export const registerFoundationThemes = (): void => {
   themeRegistry.register(darkPreset);
   themeRegistry.register(obsidianPreset);
   // 自定义主题不在这里注册：它由 ThemeProvider 在 mount 时
-  // 通过 AppSettingsService 从数据库异步加载，再 hydrate 到 registry。
+  // 通过 AppSettingsService 从数据文件异步加载，再 hydrate 到 registry。
   registered = true;
 };
 

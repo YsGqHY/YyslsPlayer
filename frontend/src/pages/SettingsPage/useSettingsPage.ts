@@ -20,7 +20,7 @@ export interface UseSettingsPageResult {
 }
 
 // 设置页"框架" ViewModel：只管左列入口的展示与切换状态。
-// 各子页面的具体业务（主题 / 偏好 / 语言 / 数据库）下沉到对应子目录的 useXxx。
+// 各子页面的具体业务（主题 / 偏好 / 语言 / 数据存储）下沉到对应子目录的 useXxx。
 export const useSettingsPage = (): UseSettingsPageResult => {
   const items = useMemo<SettingsItem[]>(
     () => [

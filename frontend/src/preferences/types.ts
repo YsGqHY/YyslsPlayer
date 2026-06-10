@@ -10,7 +10,6 @@ export interface Preferences {
   showTooltip: boolean;    // Sidebar 菜单按钮是否显示 Tooltip
   backgroundImageDataUrl: string; // 应用背景图 data URL；空字符串表示使用主题背景
 
-  performDryRunDefault: boolean;
   performLookaheadMs: number;
   performCountdownSeconds: number;
 
@@ -34,7 +33,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showTooltip: true,
   backgroundImageDataUrl: '',
 
-  performDryRunDefault: false,
   performLookaheadMs: 20,
   performCountdownSeconds: 3,
 

@@ -40,4 +40,5 @@ export const AppSettingsService = {
   async setLocaleChoice(choice: string): Promise<void> {
     await Binding.SetLocaleChoice(choice);
   },
+
 } as const;

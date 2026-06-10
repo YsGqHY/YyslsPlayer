@@ -1,6 +1,5 @@
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
-import { Box, Switch, TextField, Typography, useTheme } from '@mui/material';
-import type { ChangeEvent } from 'react';
+import { Box, TextField, Typography, useTheme } from '@mui/material';
 import { useT } from '@/i18n';
 import { settingsPageStyles } from '../SettingsPage.styles';
 import { playbackStyles } from './Playback.styles';
@@ -20,15 +19,6 @@ export const Playback = () => {
         <Typography sx={shared.sectionHint}>{t('settings.playback.hint')}</Typography>
       </Box>
 
-      {vm.showDryRunDefault && (
-        <ToggleRow
-          label={t('settings.playback.fields.dryRunDefault.label')}
-          description={t('settings.playback.fields.dryRunDefault.description')}
-          checked={vm.dryRunDefault}
-          onChange={vm.setDryRunDefault}
-          styles={styles}
-        />
-      )}
       <Box sx={styles.numberGrid}>
         <NumberField
           label={t('settings.playback.fields.lookahead.label')}
@@ -61,24 +51,6 @@ export const Playback = () => {
 };
 
 type Styles = ReturnType<typeof playbackStyles>;
-
-interface ToggleRowProps {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  styles: Styles;
-}
-
-const ToggleRow = ({ label, description, checked, onChange, styles }: ToggleRowProps) => (
-  <Box sx={styles.row}>
-    <Box sx={styles.rowText}>
-      <Typography sx={styles.label}>{label}</Typography>
-      <Typography sx={styles.desc}>{description}</Typography>
-    </Box>
-    <Switch checked={checked} onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.checked)} slotProps={{ input: { 'aria-label': label } }} />
-  </Box>
-);
 
 interface NumberFieldProps {
   label: string;

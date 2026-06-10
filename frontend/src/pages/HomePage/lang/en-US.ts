@@ -10,5 +10,9 @@ export const homePageEnUS: Messages = {
       windowsOnly: 'Windows-only performance path: MIDI parsing, PlayPlan scheduling and SendInput key simulation.',
       scope: 'This version targets Where Winds Meet 36-key mode only.',
     },
+    edition: {
+      lite: 'Lite',
+      completion: 'Complete',
+    },
   },
 };

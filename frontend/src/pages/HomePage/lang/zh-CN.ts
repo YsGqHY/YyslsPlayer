@@ -11,5 +11,9 @@ export const homePageZhCN: Messages = {
       windowsOnly: 'Windows 专用演奏链路：MIDI 解析、PlayPlan 调度、SendInput 按键模拟。',
       scope: '当前版本仅面向《燕云十六声》36 键模式。',
     },
+    edition: {
+      lite: '轻量版',
+      completion: '完整版',
+    },
   },
 };
