@@ -12,6 +12,7 @@ export const libraryPageEnUS: Messages = {
     },
     search: {
       placeholder: 'Search title, filename, or hash',
+      clear: 'Clear search',
     },
     actions: {
       import: 'Import MIDI',
@@ -31,9 +32,11 @@ export const libraryPageEnUS: Messages = {
       title: 'MIDI list',
       count: '{{count}} items',
       filtered: 'Showing {{shown}} / {{total}}',
-      empty: 'No MIDI files imported yet. Use “Import files” or “Import folder” to start, or drag MIDI files here.',
+      empty: 'No MIDI files imported yet. Use "Import files" or "Import folder" to start, or drag MIDI files here.',
+      dragHint: 'Drag .mid / .midi files directly here for quick import.',
       loading: 'Loading library…',
       noSearchResult: 'No matching MIDI files. Adjust the search text.',
+      noSearchResultQuery: 'No MIDI matching "{{query}}".',
     },
     drop: {
       title: 'Drop to import',
@@ -139,6 +142,7 @@ export const libraryPageEnUS: Messages = {
       tracks: 'Tracks',
       channels: 'Channels',
       playable: 'Playable',
+      range: 'Range',
     },
     inspector: {
       eyebrow: 'Inspector',

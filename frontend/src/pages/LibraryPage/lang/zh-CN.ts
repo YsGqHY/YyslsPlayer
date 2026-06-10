@@ -12,6 +12,7 @@ export const libraryPageZhCN: Messages = {
     },
     search: {
       placeholder: '搜索曲目、文件名或 hash',
+      clear: '清空搜索',
     },
     actions: {
       import: '导入 MIDI',
@@ -32,8 +33,10 @@ export const libraryPageZhCN: Messages = {
       count: '{{count}} 首',
       filtered: '显示 {{shown}} / {{total}}',
       empty: '还没有导入 MIDI 文件。点击“导入文件”或“导入文件夹”开始，或直接把 MIDI 文件拖到这里。',
+      dragHint: '支持直接拖拽 .mid / .midi 文件到这里快速导入。',
       loading: '正在加载曲库…',
       noSearchResult: '没有匹配的 MIDI。请调整搜索关键词。',
+      noSearchResultQuery: '没有匹配 "{{query}}" 的 MIDI。',
     },
     drop: {
       title: '松开即可导入',
@@ -139,6 +142,7 @@ export const libraryPageZhCN: Messages = {
       tracks: '轨道',
       channels: '通道',
       playable: '可演奏',
+      range: '音域',
     },
     inspector: {
       eyebrow: '参数检查器',

@@ -399,7 +399,7 @@ export const libraryPageStyles = (theme: Theme): Record<string, SxProps<Theme>> 
     },
     quickStats: {
       display: 'grid',
-      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))', lg: 'repeat(4, 104px)' },
+      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(5, minmax(0, 1fr))', lg: 'repeat(5, 104px)' },
       gap: 0.75,
     },
     statChip: {
