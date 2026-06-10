@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"YyslsPlayer/internal/utils/logx"
 )
 
 type Service struct {
-	driver Driver
+	driver  Driver
 	mu      sync.Mutex
 	pressed map[string]*pressedEntry
 	order   int
@@ -25,13 +26,13 @@ type pressedEntry struct {
 }
 
 type eventCollector struct {
-	limit               int
-	keyframes           []KeyAction
-	totalKeyframes       int
-	keyframesTruncated  bool
-	events               []KeyEvent
-	total                int
-	truncated            bool
+	limit              int
+	keyframes          []KeyAction
+	totalKeyframes     int
+	keyframesTruncated bool
+	events             []KeyEvent
+	total              int
+	truncated          bool
 }
 
 func New(driver Driver) *Service {
@@ -60,6 +61,12 @@ func (s *Service) Apply(ctx context.Context, action KeyAction, opts RunOptions) 
 func (s *Service) Run(ctx context.Context, actions []KeyAction, opts RunOptions) (RunResult, error) {
 	opts = normalizeOptions(opts)
 	collector := newEventCollector(opts.DryRunLogLimit)
+	if err := s.refreshChainHead(ctx, opts); err != nil {
+		recovered, releaseErr := s.releaseAll(ctx, opts, collector)
+		combined := errors.Join(err, releaseErr)
+		logRecovery("keysim refresh hook chain failed", opts, recovered, combined)
+		return collector.result(opts, 0, recovered), combined
+	}
 	for _, action := range actions {
 		collector.addKeyframe(opts, action)
 		if err := s.apply(ctx, action, opts, collector); err != nil {
@@ -87,6 +94,22 @@ func (s *Service) Snapshot() StateSnapshot {
 	return StateSnapshot{Pressed: s.pressedSnapshotLocked()}
 }
 
+func (s *Service) RefreshChainHead(ctx context.Context, opts RunOptions) error {
+	opts = normalizeOptions(opts)
+	return s.refreshChainHead(ctx, opts)
+}
+
+func (s *Service) refreshChainHead(ctx context.Context, opts RunOptions) error {
+	if opts.DryRun {
+		return nil
+	}
+	refresher, ok := s.driver.(ChainHeadRefresher)
+	if !ok {
+		return nil
+	}
+	return refresher.RefreshChainHead(ctx)
+}
+
 func (s *Service) apply(ctx context.Context, action KeyAction, opts RunOptions, collector *eventCollector) error {
 	if err := validateAction(action); err != nil {
 		return err
@@ -97,43 +120,61 @@ func (s *Service) apply(ctx context.Context, action KeyAction, opts RunOptions, 
 
 	switch action.Action {
 	case ActionPress:
+		if len(action.Modifiers) == 0 {
+			_, err := s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), opts, collector)
+			return err
+		}
+		pressedModifier := false
 		for _, modifier := range action.Modifiers {
-			if err := s.downLocked(ctx, eventFromAction(action, modifier, PhysicalDown, true), opts, collector); err != nil {
+			pressed, err := s.downLocked(ctx, eventFromAction(action, modifier, PhysicalDown, true), opts, collector)
+			if err != nil {
 				return err
 			}
+			pressedModifier = pressedModifier || pressed
 		}
-		return s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), opts, collector)
-	case ActionRelease:
-		if err := s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), opts, collector); err != nil {
+		if pressedModifier && !opts.DryRun && opts.ModifierHoldDelayMs > 0 {
+			time.Sleep(time.Duration(opts.ModifierHoldDelayMs) * time.Millisecond)
+		}
+		if _, err := s.downLocked(ctx, eventFromAction(action, action.Key, PhysicalDown, false), opts, collector); err != nil {
+			return err
+		}
+		releaseOpts := opts
+		releaseOpts.InterKeyDelayMs = 0
+		if err := s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), releaseOpts, collector); err != nil {
 			return err
 		}
 		for i := len(action.Modifiers) - 1; i >= 0; i-- {
-			if err := s.upLocked(ctx, eventFromAction(action, action.Modifiers[i], PhysicalUp, true), opts, collector); err != nil {
+			if err := s.upLocked(ctx, eventFromAction(action, action.Modifiers[i], PhysicalUp, true), releaseOpts, collector); err != nil {
 				return err
 			}
 		}
 		return nil
+	case ActionRelease:
+		return s.upLocked(ctx, eventFromAction(action, action.Key, PhysicalUp, false), opts, collector)
 	default:
 		return fmt.Errorf("%w: %s", ErrInvalidAction, action.Action)
 	}
 }
 
-func (s *Service) downLocked(ctx context.Context, event KeyEvent, opts RunOptions, collector *eventCollector) error {
+func (s *Service) downLocked(ctx context.Context, event KeyEvent, opts RunOptions, collector *eventCollector) (bool, error) {
 	id := keyID(event.Key)
 	entry := s.pressed[id]
 	if entry != nil {
 		entry.count++
-		return nil
+		return false, nil
 	}
 	if err := s.driver.Send(ctx, event, opts); err != nil {
 		logSendFailure(event, err)
-		return err
+		return false, err
+	}
+	if !opts.DryRun && opts.InterKeyDelayMs > 0 {
+		time.Sleep(time.Duration(opts.InterKeyDelayMs) * time.Millisecond)
 	}
 	s.order++
 	s.pressed[id] = &pressedEntry{key: event.Key, count: 1, order: s.order, modifier: event.Modifier}
 	collector.add(event)
 	logDryRunEvent(opts, event)
-	return nil
+	return true, nil
 }
 
 func (s *Service) upLocked(ctx context.Context, event KeyEvent, opts RunOptions, collector *eventCollector) error {
@@ -150,6 +191,9 @@ func (s *Service) upLocked(ctx context.Context, event KeyEvent, opts RunOptions,
 		entry.count++
 		logSendFailure(event, err)
 		return err
+	}
+	if !opts.DryRun && opts.InterKeyDelayMs > 0 {
+		time.Sleep(time.Duration(opts.InterKeyDelayMs) * time.Millisecond)
 	}
 	delete(s.pressed, id)
 	collector.add(event)
@@ -175,6 +219,9 @@ func (s *Service) releaseAll(ctx context.Context, opts RunOptions, collector *ev
 			logSendFailure(event, err)
 			releaseErr = errors.Join(releaseErr, fmt.Errorf("%w: %s: %w", ErrReleaseFailed, entry.key.Label, err))
 			continue
+		}
+		if !opts.DryRun && opts.InterKeyDelayMs > 0 {
+			time.Sleep(time.Duration(opts.InterKeyDelayMs) * time.Millisecond)
 		}
 		delete(s.pressed, keyID(entry.key))
 		collector.add(event)
@@ -283,6 +330,12 @@ func validateKey(key Key) error {
 func normalizeOptions(opts RunOptions) RunOptions {
 	if opts.DryRunLogLimit <= 0 {
 		opts.DryRunLogLimit = DefaultDryRunLogLimit
+	}
+	if opts.InterKeyDelayMs <= 0 {
+		opts.InterKeyDelayMs = 1
+	}
+	if opts.ModifierHoldDelayMs <= 0 {
+		opts.ModifierHoldDelayMs = DefaultModifierHoldDelayMs
 	}
 	return opts
 }

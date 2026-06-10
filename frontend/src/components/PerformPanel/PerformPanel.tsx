@@ -2,7 +2,7 @@ import ReportProblemRoundedIcon from '@mui/icons-material/ReportProblemRounded';
 import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import StopRoundedIcon from '@mui/icons-material/StopRounded';
-import { Box, Button, FormControlLabel, Slider, Switch, TextField, Typography, useTheme } from '@mui/material';
+import { Box, Button, Slider, TextField, Typography, useTheme } from '@mui/material';
 import { useT } from '@/i18n';
 import type { PlayerStateSnapshot, PlayPlan } from '@/services';
 import { performPanelStyles } from './PerformPanel.styles';
@@ -22,7 +22,6 @@ export const PerformPanel = ({ plan, loading = false, error = null, autoStartTok
   const styles = performPanelStyles(theme);
   const t = useT();
   const vm = usePerformPanel(plan, loading, { autoStartToken, onPlayerState, onStart });
-  const showDryRunSwitch = !import.meta.env.PROD;
   const progressPct = `${Math.round(vm.displayProgress * 100)}%`;
   const stateLabel = t(`performPanel.states.${vm.snapshot.state}`);
   const modeLabel = vm.dryRun ? t('performPanel.mode.dryRun') : t('performPanel.mode.real');
@@ -52,16 +51,7 @@ export const PerformPanel = ({ plan, loading = false, error = null, autoStartTok
         </Box>
       </Box>
 
-      <Box sx={showDryRunSwitch ? styles.configRow : styles.configRowCompact}>
-        {showDryRunSwitch && (
-          <Box sx={styles.configCard}>
-            <FormControlLabel
-              control={<Switch checked={vm.dryRun} onChange={(event) => vm.setDryRun(event.target.checked)} disabled={vm.snapshot.state === 'playing' || vm.snapshot.state === 'paused'} />}
-              label={t('performPanel.fields.dryRun')}
-            />
-            <Typography sx={styles.meta}>{t(vm.dryRun ? 'performPanel.fields.dryRunHelper' : 'performPanel.fields.realHelper')}</Typography>
-          </Box>
-        )}
+      <Box sx={styles.configRowCompact}>
         <TextField
           type="number"
           label={t('performPanel.fields.lookahead')}

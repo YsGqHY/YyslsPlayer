@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 
 	"YyslsPlayer/internal/storage"
@@ -163,4 +164,39 @@ func normalizeTracks(tracks []smf.Track, tempoMap TempoMap) ([]storage.MidiEvent
 		return events[i].Note < events[j].Note
 	})
 	return events, channelSet, maxUS
+}
+
+// ===== Exported SMF parsing =====
+
+// SMFScore 解析后的标准 MIDI 文件结构化数据。
+type SMFScore struct {
+	PPQ          int
+	TrackCount   int
+	ChannelCount int
+	DurationMs   int64
+	Events       []storage.MidiEvent
+}
+
+// ParseScore 从 MIDI 字节数据解析为标准分数。
+func ParseScore(data []byte) (SMFScore, error) {
+	score, err := parseNormalizedScore(data)
+	if err != nil {
+		return SMFScore{}, err
+	}
+	return SMFScore{
+		PPQ:          score.PPQ,
+		TrackCount:   score.TrackCount,
+		ChannelCount: score.ChannelCount,
+		DurationMs:   score.DurationMs,
+		Events:       score.Events,
+	}, nil
+}
+
+// ParseScoreFromPath 从 MIDI 文件路径解析为标准分数。
+func ParseScoreFromPath(path string) (SMFScore, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return SMFScore{}, fmt.Errorf("midi.read_failed: %w", err)
+	}
+	return ParseScore(data)
 }

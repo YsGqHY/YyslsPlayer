@@ -2,6 +2,7 @@ package midi
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"YyslsPlayer/internal/storage"
@@ -203,4 +204,45 @@ func applyMappingStatsToReport(report *QualityReportDTO, stats MappingStats) {
 	if stats.TotalNotes > 0 {
 		report.PlayableRatio = float64(stats.PlayableNotes) / float64(stats.TotalNotes)
 	}
+}
+
+// BuildPlayPlanForProject 对指定项目执行 smoke 验证：尝试用默认 profile 生成 PlayPlan。
+// 若项目无 events，或无法匹配 profile，或 plan 为空，则返回非 nil error。
+func BuildPlayPlanForProject(store *storage.Store, projectID uint) error {
+	if projectID == 0 {
+		return errors.New("projectID required")
+	}
+
+	project, ok := store.GetProject(projectID)
+	if !ok {
+		return errors.New("project not found")
+	}
+
+	// 不含 events 的项目无法构建 plan
+	events := store.ListEventsByProject(projectID)
+	if len(events) == 0 {
+		return ErrPlayPlanEmpty
+	}
+
+	// 尝试使用项目默认 profile，否则创建临时默认
+	var profileID uint
+	if project.DefaultProfileID != nil {
+		profileID = *project.DefaultProfileID
+	} else {
+		// 使用全局默认 profile
+		defaultProfile, err := loadGlobalDefaultProfile(store)
+		if err != nil {
+			return fmt.Errorf("no default profile available: %w", err)
+		}
+		profileID = defaultProfile.ID
+	}
+
+	result, err := buildPlayPlan(store, projectID, profileID)
+	if err != nil {
+		return err
+	}
+	if len(result.Frames) == 0 {
+		return ErrPlayPlanEmpty
+	}
+	return nil
 }

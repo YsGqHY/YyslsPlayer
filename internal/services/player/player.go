@@ -24,26 +24,28 @@ type Service struct {
 }
 
 type session struct {
-	id             string
-	plan           midi.PlayPlanDTO
-	actions        []keysim.KeyAction
-	nextFrame      int
-	state          PlayerState
-	positionMs     int64
-	durationMs     int64
-	dryRun         bool
-	lookaheadMs    int
-	errorCode      string
-	message        string
-	startedAt      int64
-	updatedAt      int64
-	startTime      time.Time
-	pausedAt       time.Time
-	pausedDuration time.Duration
-	cancel          context.CancelFunc
-	done            chan struct{}
-	wakeCh          chan struct{}
-	scheduleVersion uint64
+	id                 string
+	plan               midi.PlayPlanDTO
+	actions            []keysim.KeyAction
+	nextFrame          int
+	state              PlayerState
+	positionMs         int64
+	durationMs         int64
+	dryRun             bool
+	lookaheadMs        int
+	errorCode          string
+	message            string
+	startedAt          int64
+	updatedAt          int64
+	startTime          time.Time
+	pausedAt           time.Time
+	pausedDuration     time.Duration
+	startDelay         time.Duration
+	chainHeadRefreshed bool
+	cancel             context.CancelFunc
+	done               chan struct{}
+	wakeCh             chan struct{}
+	scheduleVersion    uint64
 }
 
 func New(sim *keysim.Service) *Service {
@@ -71,6 +73,7 @@ func (s *Service) Start(_ context.Context, req StartRequest) (PlayerSessionDTO, 
 	durationMs := playPlanDuration(req.Plan.DurationMs, actions)
 	startPositionMs := clampPosition(req.StartPositionMs, durationMs)
 	startedAt := time.Now()
+	startDelay := normalizeStartDelay(req.StartDelayMs)
 	sess := &session{
 		id:          newSessionID(),
 		plan:        req.Plan,
@@ -83,12 +86,12 @@ func (s *Service) Start(_ context.Context, req StartRequest) (PlayerSessionDTO, 
 		lookaheadMs: lookaheadMs,
 		startedAt:   now,
 		updatedAt:   now,
-		startTime:   startedAt.Add(-time.Duration(startPositionMs) * time.Millisecond),
+		startTime:   startedAt.Add(startDelay).Add(-time.Duration(startPositionMs) * time.Millisecond),
+		startDelay:  startDelay,
 		cancel:      cancel,
 		done:        make(chan struct{}),
 		wakeCh:      make(chan struct{}, 1),
 	}
-
 	s.mu.Lock()
 	if s.current != nil && isActiveState(s.current.state) {
 		s.mu.Unlock()
@@ -125,6 +128,7 @@ func (s *Service) Pause(ctx context.Context, sessionID string) (PlayerStateDTO, 
 	}
 	now := time.Now()
 	sess.positionMs = sess.elapsedMs(now)
+	sess.nextFrame = nextFrameAfterPosition(sess.actions, sess.positionMs)
 	sess.pausedAt = now
 	if err := s.transitionLocked(sess, StatePaused, "paused"); err != nil {
 		s.mu.Unlock()
@@ -159,6 +163,7 @@ func (s *Service) Resume(_ context.Context, sessionID string) (PlayerStateDTO, e
 		s.mu.Unlock()
 		return PlayerStateDTO{}, err
 	}
+	sess.chainHeadRefreshed = false
 	dto := stateDTO(sess)
 	s.mu.Unlock()
 	s.emitStateAndPosition(dto)
@@ -357,6 +362,9 @@ func (s *Service) seekLocked(sess *session, positionMs int64, now time.Time) {
 	} else {
 		sess.pausedAt = time.Time{}
 	}
+	if sess.state == StatePlaying {
+		sess.chainHeadRefreshed = false
+	}
 	sess.message = "seeked"
 	sess.updatedAt = unixMillis()
 	sess.scheduleVersion++
@@ -375,6 +383,15 @@ func clampPosition(positionMs int64, durationMs int64) int64 {
 func nextFrameIndex(actions []keysim.KeyAction, positionMs int64) int {
 	for index, action := range actions {
 		if action.TimeMs >= positionMs {
+			return index
+		}
+	}
+	return len(actions)
+}
+
+func nextFrameAfterPosition(actions []keysim.KeyAction, positionMs int64) int {
+	for index, action := range actions {
+		if action.TimeMs > positionMs {
 			return index
 		}
 	}

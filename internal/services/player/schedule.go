@@ -16,10 +16,21 @@ type scheduleDecision int
 const (
 	decisionExit scheduleDecision = iota
 	decisionPaused
+	decisionStartDelay
 	decisionWait
 	decisionRun
 	decisionComplete
 )
+
+func normalizeStartDelay(value int64) time.Duration {
+	if value <= 0 {
+		return 0
+	}
+	if value > 10_000 {
+		value = 10_000
+	}
+	return time.Duration(value) * time.Millisecond
+}
 
 func normalizeLookahead(value int) (int, error) {
 	if value == 0 {
@@ -100,6 +111,14 @@ func (s *Service) runScheduler(ctx context.Context, sess *session) {
 			if !sleepOrDone(ctx, 5*time.Millisecond) {
 				return
 			}
+		case decisionStartDelay:
+			if !sleepOrWake(ctx, sess, wait) {
+				return
+			}
+			if err := s.refreshChainHeadForSession(ctx, sess, dryRun, version); err != nil {
+				s.failSession(ctx, sess, err)
+				return
+			}
 		case decisionWait:
 			if !sleepOrWake(ctx, sess, schedulerWait(wait, sess.lookaheadMs)) {
 				return
@@ -137,6 +156,12 @@ func (s *Service) nextScheduleStep(sess *session) (keysim.KeyAction, bool, time.
 			return keysim.KeyAction{}, sess.dryRun, 0, sess.scheduleVersion, decisionComplete
 		}
 		now := time.Now()
+		if !sess.chainHeadRefreshed {
+			if wait := time.Until(sess.startTime); wait > 0 {
+				return keysim.KeyAction{}, sess.dryRun, wait, sess.scheduleVersion, decisionStartDelay
+			}
+			return keysim.KeyAction{}, sess.dryRun, 0, sess.scheduleVersion, decisionStartDelay
+		}
 		s.refreshPositionLocked(sess, now)
 		action := sess.actions[sess.nextFrame]
 		delayMs := action.TimeMs - sess.positionMs
@@ -147,6 +172,29 @@ func (s *Service) nextScheduleStep(sess *session) (keysim.KeyAction, bool, time.
 	default:
 		return keysim.KeyAction{}, sess.dryRun, 0, sess.scheduleVersion, decisionExit
 	}
+}
+
+func (s *Service) refreshChainHeadForSession(ctx context.Context, sess *session, dryRun bool, version uint64) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	s.mu.Lock()
+	active := s.current == sess && sess.state == StatePlaying && sess.scheduleVersion == version
+	s.mu.Unlock()
+	if !active {
+		return nil
+	}
+	if err := s.keysim.RefreshChainHead(ctx, keysim.RunOptions{DryRun: dryRun}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.current == sess && sess.scheduleVersion == version {
+		sess.chainHeadRefreshed = true
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *Service) applyScheduledAction(ctx context.Context, sess *session, action keysim.KeyAction, dryRun bool, version uint64) (bool, error) {

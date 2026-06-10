@@ -26,7 +26,6 @@ export interface PerformPanelState {
   displayDurationMs: number;
   displayProgress: number;
   canSeek: boolean;
-  setDryRun: (value: boolean) => void;
   setLookaheadMs: (value: number) => void;
   setSeekPreview: (value: number) => void;
   commitSeek: (value: number) => void;
@@ -57,7 +56,6 @@ const INITIAL_POSITION: PlayerPositionEvent = {
   updatedAt: 0,
 };
 
-const isProductionBuild = import.meta.env.PROD;
 const isActive = (state: PlayerStateSnapshot['state']): boolean => state === 'playing' || state === 'paused';
 const isTerminal = (state: PlayerStateSnapshot['state']): boolean => state === 'completed' || state === 'stopped' || state === 'error';
 const clampLookahead = (value: number): number => Math.max(5, Math.min(50, Number.isFinite(value) ? Math.round(value) : 20));
@@ -73,7 +71,6 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
   const { preferences } = usePreferences();
   const [snapshot, setSnapshot] = useState<PlayerStateSnapshot>(INITIAL_STATE);
   const [position, setPosition] = useState<PlayerPositionEvent>(INITIAL_POSITION);
-  const [dryRun, setDryRunState] = useState(isProductionBuild ? false : preferences.performDryRunDefault);
   const [lookaheadMs, setLookaheadMsState] = useState(clampLookahead(preferences.performLookaheadMs));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,15 +150,6 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
     };
   }, []);
 
-  const setDryRun = (value: boolean): void => {
-    setDryRunState(isProductionBuild ? false : value);
-  };
-
-  useEffect(() => {
-    if (snapshot.state === 'playing' || snapshot.state === 'paused') return;
-    setDryRunState(isProductionBuild ? false : preferences.performDryRunDefault);
-  }, [preferences.performDryRunDefault, snapshot.state]);
-
   useEffect(() => {
     if (snapshot.state === 'playing' || snapshot.state === 'paused') return;
     setLookaheadMsState(clampLookahead(preferences.performLookaheadMs));
@@ -223,7 +211,8 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
       const startSession = async () => {
         const durationMs = snapshot.durationMs || position.durationMs || plan.durationMs;
         const startPositionMs = clampPosition(seekPositionMs, durationMs);
-        const session = await PlayerService.start({ plan, dryRun, lookaheadMs: clampLookahead(lookaheadMs), startPositionMs });
+        const startDelayMs = clampCountdown(preferences.performCountdownSeconds) * 1000;
+        const session = await PlayerService.start({ plan, lookaheadMs: clampLookahead(lookaheadMs), startPositionMs, startDelayMs });
         sessionRef.current = session.sessionId;
         onStartRef.current?.();
         const progress = session.durationMs > 0 ? Math.max(0, Math.min(1, session.positionMs / session.durationMs)) : 0;
@@ -240,21 +229,19 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
       };
 
       const waitSeconds = clampCountdown(preferences.performCountdownSeconds);
-      if (waitSeconds <= 0) return startSession();
-
-      setCountdown(waitSeconds);
-      await new Promise<void>((resolve) => {
+      if (waitSeconds > 0) {
+        setCountdown(waitSeconds);
         let remaining = waitSeconds;
+        if (countdownRef.current !== null) window.clearInterval(countdownRef.current);
         countdownRef.current = window.setInterval(() => {
           remaining -= 1;
           setCountdown(Math.max(0, remaining));
           if (remaining <= 0 && countdownRef.current !== null) {
             window.clearInterval(countdownRef.current);
             countdownRef.current = null;
-            resolve();
           }
         }, 1000);
-      });
+      }
       return startSession();
     });
   };
@@ -306,7 +293,7 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
         pendingTerminalPositionRef.current = nextPosition;
         const stopped = await PlayerService.stop(sessionRef.current);
         if (snapshot.state === 'paused') return { ...stopped, positionMs: nextPosition };
-        const session = await PlayerService.start({ plan, dryRun, lookaheadMs: clampLookahead(lookaheadMs), startPositionMs: nextPosition });
+        const session = await PlayerService.start({ plan, lookaheadMs: clampLookahead(lookaheadMs), startPositionMs: nextPosition });
         sessionRef.current = session.sessionId;
         return session;
       }
@@ -340,7 +327,7 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
   return {
     snapshot,
     position,
-    dryRun,
+    dryRun: false,
     lookaheadMs,
     busy,
     error,
@@ -354,7 +341,6 @@ export const usePerformPanel = (plan: PlayPlan | null, loading = false, options:
     canResume: snapshot.state === 'paused' && !busy,
     canStop: isActive(snapshot.state) && !busy,
     canReleaseAll: !busy,
-    setDryRun,
     setLookaheadMs: (value) => setLookaheadMsState(clampLookahead(value)),
     setSeekPreview,
     commitSeek,

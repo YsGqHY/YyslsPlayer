@@ -10,9 +10,9 @@ export type PlayerState = 'idle' | 'ready' | 'playing' | 'paused' | 'completed' 
 
 export interface StartPlayerRequest {
   plan: PlayPlan;
-  dryRun?: boolean;
   lookaheadMs?: number;
   startPositionMs?: number;
+  startDelayMs?: number;
 }
 
 export interface PlayerSession {
@@ -153,15 +153,14 @@ const toBindingPlayPlan = (plan: PlayPlan): PlayPlanDTO => new PlayPlanDTO({
   },
 });
 
-const resolveDryRun = (value: boolean | undefined): boolean => (import.meta.env.PROD ? false : value ?? false);
-
 export const PlayerService = {
   async start(req: StartPlayerRequest): Promise<PlayerSession> {
-    const payload: Parameters<typeof Binding.Start>[0] & { startPositionMs?: number } = {
+    const payload: Parameters<typeof Binding.Start>[0] & { startPositionMs?: number; startDelayMs?: number } = {
       plan: toBindingPlayPlan(req.plan),
-      dryRun: resolveDryRun(req.dryRun),
+      dryRun: false,
       lookaheadMs: req.lookaheadMs ?? 20,
       startPositionMs: req.startPositionMs ?? 0,
+      startDelayMs: req.startDelayMs ?? 0,
     };
     return mapSession(await Binding.Start(payload));
   },

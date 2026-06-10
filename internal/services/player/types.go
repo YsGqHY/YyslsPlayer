@@ -42,6 +42,7 @@ type StartRequest struct {
 	DryRun          bool             `json:"dryRun"`
 	LookaheadMs     int              `json:"lookaheadMs"`
 	StartPositionMs int64            `json:"startPositionMs"`
+	StartDelayMs    int64            `json:"startDelayMs"`
 }
 
 type PlayerSessionDTO struct {

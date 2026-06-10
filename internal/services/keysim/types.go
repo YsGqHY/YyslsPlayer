@@ -13,15 +13,17 @@ const (
 	PhysicalDown PhysicalKind = "down"
 	PhysicalUp   PhysicalKind = "up"
 
-	DefaultDryRunLogLimit = 2000
+	DefaultDryRunLogLimit      = 2000
+	DefaultModifierHoldDelayMs = 8
 )
 
 var (
-	ErrUnsupportedPlatform = errors.New("KEYSIM_UNSUPPORTED_PLATFORM")
-	ErrSendFailed          = errors.New("KEYSIM_SEND_FAILED")
-	ErrReleaseFailed       = errors.New("KEYSIM_RELEASE_FAILED")
-	ErrInvalidAction       = errors.New("KEYSIM_INVALID_ACTION")
-	ErrInvalidKey          = errors.New("KEYSIM_INVALID_KEY")
+	ErrUnsupportedPlatform    = errors.New("KEYSIM_UNSUPPORTED_PLATFORM")
+	ErrHookLaunderUnavailable = errors.New("KEYSIM_HOOK_LAUNDER_UNAVAILABLE")
+	ErrSendFailed             = errors.New("KEYSIM_SEND_FAILED")
+	ErrReleaseFailed          = errors.New("KEYSIM_RELEASE_FAILED")
+	ErrInvalidAction          = errors.New("KEYSIM_INVALID_ACTION")
+	ErrInvalidKey             = errors.New("KEYSIM_INVALID_KEY")
 )
 
 type ActionKind string
@@ -62,8 +64,10 @@ type PressedKey struct {
 }
 
 type RunOptions struct {
-	DryRun         bool `json:"dryRun"`
-	DryRunLogLimit int  `json:"dryRunLogLimit"`
+	DryRun              bool `json:"dryRun"`
+	DryRunLogLimit      int  `json:"dryRunLogLimit"`
+	InterKeyDelayMs     int  `json:"interKeyDelayMs"`
+	ModifierHoldDelayMs int  `json:"modifierHoldDelayMs"`
 }
 
 type RunResult struct {
@@ -84,4 +88,8 @@ type StateSnapshot struct {
 
 type Driver interface {
 	Send(ctx context.Context, event KeyEvent, opts RunOptions) error
+}
+
+type ChainHeadRefresher interface {
+	RefreshChainHead(ctx context.Context) error
 }

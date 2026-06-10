@@ -4,26 +4,27 @@ package keysim
 
 import (
 	"context"
-	"fmt"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 const (
-	inputKeyboard       uint32 = 1
-	keyEventFKeyUp      uint32 = 0x0002
-	keyEventFScancode   uint32 = 0x0008
-	keyEventFExtended   uint32 = 0x0001
-	extendedKeyPrefix          = 0xE000
+	inputKeyboard     uint32 = 1
+	keyEventFKeyUp    uint32 = 0x0002
+	keyEventFScancode uint32 = 0x0008
+	keyEventFExtended uint32 = 0x0001
+	extendedKeyPrefix        = 0xE000 // equals (0xE0 << 8); marks VK_LCONTROL..VK_RMENU and similar extended keys
+
+	// yyslsExtraInfo 设置非零 ExtraInfo，绕过简易的 ExtraInfo==0 SendInput 黑名单。
+	yyslsExtraInfo = 0x5959534C // "YYSL" in little-endian ASCII
 )
 
 var (
-	user32          = windows.NewLazySystemDLL("user32.dll")
-	procSendInput   = user32.NewProc("SendInput")
+	user32        = windows.NewLazySystemDLL("user32.dll")
+	procSendInput = user32.NewProc("SendInput")
 )
 
-type windowsDriver struct{}
+type unavailableDriver struct{}
 
 type keyboardInput struct {
 	VirtualKey uint16
@@ -40,34 +41,17 @@ type input struct {
 }
 
 func NewDefaultDriver() Driver {
-	return NewWindowsDriver()
+	if d := NewHookLaunderDriver(); d != nil {
+		return d
+	}
+	return unavailableDriver{}
 }
 
-func NewWindowsDriver() Driver {
-	return windowsDriver{}
-}
-
-func (windowsDriver) Send(_ context.Context, event KeyEvent, opts RunOptions) error {
+func (unavailableDriver) Send(_ context.Context, _ KeyEvent, opts RunOptions) error {
 	if opts.DryRun {
 		return nil
 	}
-	ki, err := keyboardInputFromEvent(event)
-	if err != nil {
-		return err
-	}
-	in := input{Type: inputKeyboard, Ki: ki}
-	ret, _, callErr := procSendInput.Call(
-		uintptr(1),
-		uintptr(unsafe.Pointer(&in)),
-		unsafe.Sizeof(in),
-	)
-	if ret != 1 {
-		if callErr != windows.ERROR_SUCCESS {
-			return fmt.Errorf("%w: %v", ErrSendFailed, callErr)
-		}
-		return fmt.Errorf("%w: sent=%d", ErrSendFailed, ret)
-	}
-	return nil
+	return ErrHookLaunderUnavailable
 }
 
 func keyboardInputFromEvent(event KeyEvent) (keyboardInput, error) {
@@ -84,7 +68,19 @@ func keyboardInputFromEvent(event KeyEvent) (keyboardInput, error) {
 			flags |= keyEventFExtended
 			scanCode &= 0x00ff
 		}
-		return keyboardInput{ScanCode: uint16(scanCode), Flags: flags | keyEventFScancode}, nil
+		ki := keyboardInput{
+			ScanCode:  uint16(scanCode),
+			Flags:     flags | keyEventFScancode,
+			ExtraInfo: yyslsExtraInfo,
+		}
+		if includeVirtualKeyWithScanCode() && event.Key.VirtualKey != 0 {
+			ki.VirtualKey = uint16(event.Key.VirtualKey)
+		}
+		return ki, nil
 	}
-	return keyboardInput{VirtualKey: uint16(event.Key.VirtualKey), Flags: flags}, nil
+	return keyboardInput{
+		VirtualKey: uint16(event.Key.VirtualKey),
+		Flags:      flags,
+		ExtraInfo:  yyslsExtraInfo,
+	}, nil
 }

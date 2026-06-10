@@ -35,7 +35,7 @@ func TestDryRunExpandsModifierSequence(t *testing.T) {
 	}
 }
 
-func TestDryRunKeepsSharedModifierPressedUntilLastRelease(t *testing.T) {
+func TestDryRunReleasesSharedModifierAfterEachPress(t *testing.T) {
 	svc := New(NewStubDriver())
 	actions := []KeyAction{
 		action(ActionPress, keyA(), shift()),
@@ -48,22 +48,26 @@ func TestDryRunKeepsSharedModifierPressedUntilLastRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
-	if result.TotalEvents != 6 || len(result.Events) != 6 {
+	if result.TotalEvents != 8 || len(result.Events) != 8 {
 		t.Fatalf("events = %+v", result.Events)
 	}
 	assertEvent(t, result.Events[0], PhysicalDown, "Shift", true)
 	assertEvent(t, result.Events[1], PhysicalDown, "A", false)
-	assertEvent(t, result.Events[2], PhysicalDown, "B", false)
-	assertEvent(t, result.Events[3], PhysicalUp, "A", false)
-	assertEvent(t, result.Events[4], PhysicalUp, "B", false)
-	assertEvent(t, result.Events[5], PhysicalUp, "Shift", true)
+	assertEvent(t, result.Events[2], PhysicalUp, "A", false)
+	assertEvent(t, result.Events[3], PhysicalUp, "Shift", true)
+	assertEvent(t, result.Events[4], PhysicalDown, "Shift", true)
+	assertEvent(t, result.Events[5], PhysicalDown, "B", false)
+	assertEvent(t, result.Events[6], PhysicalUp, "B", false)
+	assertEvent(t, result.Events[7], PhysicalUp, "Shift", true)
 }
 
 func TestReleaseAllClearsPressedSetInReverseOrder(t *testing.T) {
 	svc := New(NewStubDriver())
-	_, err := svc.Apply(context.Background(), action(ActionPress, keyA(), shift()), RunOptions{DryRun: true})
-	if err != nil {
-		t.Fatalf("Apply failed: %v", err)
+	if _, err := svc.Apply(context.Background(), action(ActionPress, keyA()), RunOptions{DryRun: true}); err != nil {
+		t.Fatalf("press A failed: %v", err)
+	}
+	if _, err := svc.Apply(context.Background(), action(ActionPress, keyB()), RunOptions{DryRun: true}); err != nil {
+		t.Fatalf("press B failed: %v", err)
 	}
 	if got := svc.Snapshot().Pressed; len(got) != 2 {
 		t.Fatalf("pressed len = %d, want 2: %+v", len(got), got)
@@ -76,8 +80,8 @@ func TestReleaseAllClearsPressedSetInReverseOrder(t *testing.T) {
 	if result.ReleasedKeys != 2 || result.TotalEvents != 2 {
 		t.Fatalf("result = %+v", result)
 	}
-	assertEvent(t, result.Events[0], PhysicalUp, "A", false)
-	assertEvent(t, result.Events[1], PhysicalUp, "Shift", true)
+	assertEvent(t, result.Events[0], PhysicalUp, "B", false)
+	assertEvent(t, result.Events[1], PhysicalUp, "A", false)
 	if got := svc.Snapshot().Pressed; len(got) != 0 {
 		t.Fatalf("pressed = %+v, want empty", got)
 	}
