@@ -42,8 +42,11 @@ var (
 
 // per-binding 运行时错误码（字符串，随 BindingDTO 返回给前端）。
 const (
-	CodeAlreadyRegistered = "HOTKEY_ALREADY_REGISTERED"
-	CodeRegisterFailed    = "HOTKEY_REGISTER_FAILED"
+	CodeAlreadyRegistered  = "HOTKEY_ALREADY_REGISTERED"
+	CodeRegisterFailed     = "HOTKEY_REGISTER_FAILED"
+	CodeAppConflict        = "HOTKEY_APP_CONFLICT"
+	CodeInvalidAccelerator = "HOTKEY_INVALID_ACCELERATOR"
+	CodeUnsafeAccelerator  = "HOTKEY_UNSAFE_ACCELERATOR"
 )
 
 // BindingDTO 是单个动作的绑定快照（含运行时注册状态）。
@@ -73,6 +76,24 @@ type TriggeredDTO struct {
 	// 暂停继续），前端无需再调用，只用于 UI 反馈 / 导航类动作。
 	HandledByBackend bool  `json:"handledByBackend"`
 	At               int64 `json:"at"`
+}
+
+// ExternalBinding 是非 hotkey 内置动作提交的全局触发绑定。
+type ExternalBinding struct {
+	TargetID    string `json:"targetId"`
+	Accelerator string `json:"accelerator"`
+	Enabled     bool   `json:"enabled"`
+	Label       string `json:"label"`
+}
+
+// ExternalBindingState 是外部绑定最近一次解析 / 注册结果。
+type ExternalBindingState struct {
+	Source      string `json:"source"`
+	TargetID    string `json:"targetId"`
+	Accelerator string `json:"accelerator"`
+	Enabled     bool   `json:"enabled"`
+	Registered  bool   `json:"registered"`
+	ErrorCode   string `json:"errorCode"`
 }
 
 // defaultBinding 是单条默认快捷键定义。

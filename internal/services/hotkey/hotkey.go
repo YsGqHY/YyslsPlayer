@@ -21,31 +21,40 @@ type EventEmitterFunc func(name string, payload any)
 
 func (f EventEmitterFunc) Emit(name string, payload any) { f(name, payload) }
 
+// ExternalHandler receives an external hotkey target trigger.
+type ExternalHandler func(targetID string)
+
 // Service 是 Wails 服务，方法自动暴露给前端。
 //
 // 职责：
-//   - 持久化每个动作的全局热键绑定（SQLite，holder.Current()）
-//   - 把启用的绑定解析并 Apply 到平台 manager（OS 注册）
-//   - 收到 OS 热键触发时：playback 类动作直接调用 player（游戏聚焦也可靠生效），
-//     并向前端 Emit hotkey:triggered 供导航 / UI 反馈
+//   - 持久化每个内置动作的全局热键绑定（SQLite，holder.Current()）
+//   - 统一持有内置绑定与外部 source 绑定快照，并全量同步到平台 manager
+//   - 收到 OS 热键触发时：内置 playback 类动作直接调用 player，外部 target
+//     派发给对应 source handler（例如 macro）
 type Service struct {
 	holder  *storage.Holder
 	player  *player.Service
 	manager manager
 
-	mu       sync.RWMutex
-	emitter  EventEmitter
-	regState map[string]registerResult // actionID -> 最近一次注册结果
-	started  bool
+	mu               sync.RWMutex
+	emitter          EventEmitter
+	regState         map[string]registerResult // actionID -> 最近一次内置注册结果
+	externalBindings map[string][]ExternalBinding
+	externalState    map[string]map[string]ExternalBindingState
+	externalHandlers map[string]ExternalHandler
+	started          bool
 }
 
 // New 构造服务；manager 由平台 newManager() 提供（windows / stub）。
 func New(holder *storage.Holder, playerSvc *player.Service) *Service {
 	return &Service{
-		holder:   holder,
-		player:   playerSvc,
-		manager:  newManager(),
-		regState: make(map[string]registerResult),
+		holder:           holder,
+		player:           playerSvc,
+		manager:          newManager(),
+		regState:         make(map[string]registerResult),
+		externalBindings: make(map[string][]ExternalBinding),
+		externalState:    make(map[string]map[string]ExternalBindingState),
+		externalHandlers: make(map[string]ExternalHandler),
 	}
 }
 
@@ -60,6 +69,71 @@ func (s *Service) AttachEmitter(emitter EventEmitter) {
 	s.mu.Lock()
 	s.emitter = emitter
 	s.mu.Unlock()
+}
+
+// RegisterExternalHandler registers a trigger handler for one external source.
+//
+//wails:ignore
+func (s *Service) RegisterExternalHandler(source string, handler ExternalHandler) {
+	if source == "" {
+		return
+	}
+	s.mu.Lock()
+	if handler == nil {
+		delete(s.externalHandlers, source)
+	} else {
+		s.externalHandlers[source] = handler
+	}
+	s.mu.Unlock()
+}
+
+// SetExternalBindings replaces one source's full external binding snapshot.
+//
+//wails:ignore
+func (s *Service) SetExternalBindings(source string, bindings []ExternalBinding) []ExternalBindingState {
+	if source == "" {
+		return nil
+	}
+	copied := make([]ExternalBinding, 0, len(bindings))
+	for _, b := range bindings {
+		copied = append(copied, b)
+	}
+	s.mu.Lock()
+	s.externalBindings[source] = copied
+	s.mu.Unlock()
+	s.reapply(context.Background())
+	return s.GetExternalBindingStates(source)
+}
+
+// ClearExternalBindings removes all external bindings for one source.
+//
+//wails:ignore
+func (s *Service) ClearExternalBindings(source string) {
+	if source == "" {
+		return
+	}
+	s.mu.Lock()
+	delete(s.externalBindings, source)
+	delete(s.externalState, source)
+	s.mu.Unlock()
+	s.reapply(context.Background())
+}
+
+// GetExternalBindingStates returns the last parse/register snapshot for a source.
+//
+//wails:ignore
+func (s *Service) GetExternalBindingStates(source string) []ExternalBindingState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	byTarget := s.externalState[source]
+	if len(byTarget) == 0 {
+		return []ExternalBindingState{}
+	}
+	out := make([]ExternalBindingState, 0, len(byTarget))
+	for _, st := range byTarget {
+		out = append(out, st)
+	}
+	return out
 }
 
 // Start 在应用启动后调用：播种默认绑定、启动 manager、注册启用项。
@@ -224,53 +298,144 @@ func (s *Service) upsert(ctx context.Context, actionID string, mutate func(*stor
 
 // reapply 解析启用的绑定并全量同步到 manager，记录 per-binding 注册结果。
 func (s *Service) reapply(ctx context.Context) {
-	s.mu.RLock()
-	started := s.started
-	s.mu.RUnlock()
-	if !s.manager.Supported() || !started {
-		return
-	}
 	rows, err := s.loadBindings(ctx)
 	if err != nil {
 		logx.For("hotkey").Error("load bindings failed", "error", err)
 		return
 	}
+
+	s.mu.RLock()
+	started := s.started
+	externalBindings := copyExternalBindings(s.externalBindings)
+	s.mu.RUnlock()
+
 	var toRegister []resolved
+	builtinState := make(map[string]registerResult, len(rows))
+	externalState := make(map[string]map[string]ExternalBindingState, len(externalBindings))
+	seen := make(map[string]target)
+
 	for _, r := range rows {
 		if !r.Enabled {
 			continue
 		}
-		acc, err := parseAccelerator(r.Accelerator)
+		tgt := builtinTarget(r.ActionID)
+		acc, err := normalizeAccelerator(r.Accelerator)
 		if err != nil {
+			builtinState[r.ActionID] = registerResult{target: tgt, ok: false, errorCode: acceleratorErrorCode(err)}
 			logx.For("hotkey").Warn("skip invalid accelerator", "actionId", r.ActionID, "accel", r.Accelerator, "error", err)
 			continue
 		}
-		toRegister = append(toRegister, resolved{
-			actionID:    r.ActionID,
-			accelerator: acc.text,
-			modifiers:   acc.modifiers,
-			vk:          acc.vk,
-		})
+		identity := acceleratorIdentity(acc)
+		if _, exists := seen[identity]; exists {
+			builtinState[r.ActionID] = registerResult{target: tgt, ok: false, errorCode: CodeAppConflict}
+			continue
+		}
+		seen[identity] = tgt
+		toRegister = append(toRegister, resolved{target: tgt, accelerator: acc.text, modifiers: acc.modifiers, vk: acc.vk})
 	}
-	results := s.manager.Apply(toRegister)
+
+	for source, bindings := range externalBindings {
+		if _, ok := externalState[source]; !ok {
+			externalState[source] = make(map[string]ExternalBindingState, len(bindings))
+		}
+		for _, b := range bindings {
+			st := ExternalBindingState{Source: source, TargetID: b.TargetID, Accelerator: b.Accelerator, Enabled: b.Enabled}
+			if !b.Enabled {
+				externalState[source][b.TargetID] = st
+				continue
+			}
+			tgt := externalTarget(source, b.TargetID)
+			acc, err := normalizeAccelerator(b.Accelerator)
+			if err != nil {
+				st.ErrorCode = acceleratorErrorCode(err)
+				externalState[source][b.TargetID] = st
+				continue
+			}
+			st.Accelerator = acc.text
+			identity := acceleratorIdentity(acc)
+			if _, exists := seen[identity]; exists {
+				st.ErrorCode = CodeAppConflict
+				externalState[source][b.TargetID] = st
+				continue
+			}
+			seen[identity] = tgt
+			externalState[source][b.TargetID] = st
+			toRegister = append(toRegister, resolved{target: tgt, accelerator: acc.text, modifiers: acc.modifiers, vk: acc.vk})
+		}
+	}
+
+	if s.manager.Supported() && started {
+		results := s.manager.Apply(toRegister)
+		for _, res := range results {
+			switch res.target.kind {
+			case targetBuiltin:
+				builtinState[res.target.actionID] = res
+			case targetExternal:
+				bySource := externalState[res.target.source]
+				if bySource == nil {
+					bySource = map[string]ExternalBindingState{}
+					externalState[res.target.source] = bySource
+				}
+				st := bySource[res.target.targetID]
+				st.Source = res.target.source
+				st.TargetID = res.target.targetID
+				st.Enabled = true
+				st.Registered = res.ok
+				if !res.ok {
+					st.ErrorCode = res.errorCode
+				}
+				bySource[res.target.targetID] = st
+			}
+		}
+	}
+
 	s.mu.Lock()
-	s.regState = make(map[string]registerResult, len(results))
-	for _, res := range results {
-		s.regState[res.actionID] = res
-	}
+	s.regState = builtinState
+	s.externalState = externalState
 	s.mu.Unlock()
-	for _, res := range results {
-		if !res.ok {
-			logx.For("hotkey").Warn("hotkey register failed", "actionId", res.actionID, "code", res.errorCode)
+
+	for _, res := range builtinState {
+		if !res.ok && res.errorCode != "" {
+			logx.For("hotkey").Warn("hotkey register failed", "target", res.target.key(), "code", res.errorCode)
+		}
+	}
+	for _, bySource := range externalState {
+		for _, st := range bySource {
+			if st.Enabled && !st.Registered && st.ErrorCode != "" {
+				logx.For("hotkey").Warn("external hotkey register failed", "source", st.Source, "targetId", st.TargetID, "code", st.ErrorCode)
+			}
 		}
 	}
 }
 
+func copyExternalBindings(in map[string][]ExternalBinding) map[string][]ExternalBinding {
+	out := make(map[string][]ExternalBinding, len(in))
+	for source, bindings := range in {
+		copied := make([]ExternalBinding, len(bindings))
+		copy(copied, bindings)
+		out[source] = copied
+	}
+	return out
+}
+
+func acceleratorErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrUnsafeAccelerator):
+		return CodeUnsafeAccelerator
+	case errors.Is(err, ErrInvalidAccelerator):
+		return CodeInvalidAccelerator
+	default:
+		return CodeRegisterFailed
+	}
+}
+
 // onTrigger 由 manager 在 OS 热键触发时回调（独立 goroutine）。
-//
-// playback 类动作直接对 player 当前 session 执行，保证游戏聚焦时也生效；
-// 全部动作都 Emit hotkey:triggered 给前端做导航 / UI 反馈。
-func (s *Service) onTrigger(actionID string) {
+func (s *Service) onTrigger(tgt target) {
+	if tgt.kind == targetExternal {
+		s.handleExternal(tgt)
+		return
+	}
+	actionID := tgt.actionID
 	handled := s.handleBackend(actionID)
 	accel := ""
 	if rows, err := s.loadBindings(context.Background()); err == nil {
@@ -287,6 +452,17 @@ func (s *Service) onTrigger(actionID string) {
 		HandledByBackend: handled,
 		At:               time.Now().UnixMilli(),
 	})
+}
+
+func (s *Service) handleExternal(tgt target) {
+	s.mu.RLock()
+	handler := s.externalHandlers[tgt.source]
+	s.mu.RUnlock()
+	if handler == nil {
+		logx.For("hotkey").Warn("external hotkey handler missing", "source", tgt.source, "targetId", tgt.targetID)
+		return
+	}
+	handler(tgt.targetID)
 }
 
 // handleBackend 对可由后端直接执行的动作调用 player；返回是否已处理。

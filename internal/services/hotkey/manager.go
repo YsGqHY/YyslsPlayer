@@ -1,8 +1,36 @@
 package hotkey
 
+const (
+	targetBuiltin  = "builtin"
+	targetExternal = "external"
+)
+
+// target identifies one hotkey target, either a built-in action or an external source target.
+type target struct {
+	kind     string
+	actionID string
+	source   string
+	targetID string
+}
+
+func builtinTarget(actionID string) target {
+	return target{kind: targetBuiltin, actionID: actionID}
+}
+
+func externalTarget(source string, targetID string) target {
+	return target{kind: targetExternal, source: source, targetID: targetID}
+}
+
+func (t target) key() string {
+	if t.kind == targetExternal {
+		return targetExternal + ":" + t.source + ":" + t.targetID
+	}
+	return targetBuiltin + ":" + t.actionID
+}
+
 // resolved 是要注册到 OS 的一条解析后绑定。
 type resolved struct {
-	actionID    string
+	target      target
 	accelerator string // 规范化文本
 	modifiers   int    // 不含 ModNoRepeat
 	vk          int
@@ -10,13 +38,13 @@ type resolved struct {
 
 // registerResult 是单条绑定的注册结果（per-binding）。
 type registerResult struct {
-	actionID  string
+	target    target
 	ok        bool
 	errorCode string // ok=false 时填，对应 CodeAlreadyRegistered / CodeRegisterFailed
 }
 
-// triggerFunc 是热键触发回调，由 Service 注入；actionID 为被触发的动作。
-type triggerFunc func(actionID string)
+// triggerFunc 是热键触发回调，由 Service 注入；target 为被触发的目标。
+type triggerFunc func(target target)
 
 // manager 抽象不同平台的全局热键注册。
 //

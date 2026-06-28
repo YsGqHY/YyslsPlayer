@@ -129,7 +129,7 @@ export const useShortcuts = (): UseShortcutsResult => {
         setRecording((prev) => (prev ? { ...prev, hint: 'listening' } : prev));
         return;
       }
-      if (event.code === 'Escape') {
+      if (event.code === 'Escape' && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
         setRecording(null);
         return;
       }

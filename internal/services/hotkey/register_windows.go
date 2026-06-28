@@ -70,7 +70,7 @@ type winManager struct {
 	readyCh chan struct{}
 
 	// 以下仅在消息循环线程访问，无需加锁。
-	idToAction map[int32]string
+	idToTarget map[int32]target
 	nextID     int32
 }
 
@@ -78,7 +78,7 @@ func newManager() manager {
 	return &winManager{
 		cmdCh:      make(chan winCommand, 8),
 		readyCh:    make(chan struct{}),
-		idToAction: make(map[int32]string),
+		idToTarget: make(map[int32]target),
 	}
 }
 
@@ -192,10 +192,10 @@ func (m *winManager) drainCommands() bool {
 
 // applyLocked 在消息循环线程上全量重注册热键，返回 per-binding 结果。
 func (m *winManager) applyLocked(bindings []resolved) []registerResult {
-	for id := range m.idToAction {
+	for id := range m.idToTarget {
 		procUnregisterHotKey.Call(0, uintptr(id))
 	}
-	m.idToAction = make(map[int32]string, len(bindings))
+	m.idToTarget = make(map[int32]target, len(bindings))
 
 	results := make([]registerResult, 0, len(bindings))
 	for _, b := range bindings {
@@ -208,25 +208,25 @@ func (m *winManager) applyLocked(bindings []resolved) []registerResult {
 			if errno, ok := callErr.(syscall.Errno); ok && errno == errorHotkeyAlreadyRegistered {
 				code = CodeAlreadyRegistered
 			}
-			results = append(results, registerResult{actionID: b.actionID, ok: false, errorCode: code})
+			results = append(results, registerResult{target: b.target, ok: false, errorCode: code})
 			continue
 		}
-		m.idToAction[id] = b.actionID
-		results = append(results, registerResult{actionID: b.actionID, ok: true})
+		m.idToTarget[id] = b.target
+		results = append(results, registerResult{target: b.target, ok: true})
 	}
 	return results
 }
 
 func (m *winManager) unregisterAll() {
-	for id := range m.idToAction {
+	for id := range m.idToTarget {
 		procUnregisterHotKey.Call(0, uintptr(id))
 	}
-	m.idToAction = make(map[int32]string)
+	m.idToTarget = make(map[int32]target)
 }
 
-// dispatch 把热键 id 映射回动作并异步回调（不阻塞消息循环）。
+// dispatch 把热键 id 映射回目标并异步回调（不阻塞消息循环）。
 func (m *winManager) dispatch(id int32) {
-	actionID, ok := m.idToAction[id]
+	tgt, ok := m.idToTarget[id]
 	if !ok {
 		return
 	}
@@ -234,5 +234,5 @@ func (m *winManager) dispatch(id int32) {
 	if trigger == nil {
 		return
 	}
-	go trigger(actionID)
+	go trigger(tgt)
 }
