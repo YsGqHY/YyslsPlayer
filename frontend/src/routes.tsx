@@ -2,6 +2,7 @@ import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded';
+import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import { lazy } from 'react';
 import { HomePage } from '@/pages/HomePage/HomePage';
 import { HomePageSkeleton } from '@/pages/HomePage/HomePage.skeleton';
@@ -26,6 +27,13 @@ const TranscriptionPage = lazy(async () => {
   const mod = await import('@/pages/TranscriptionPage/TranscriptionPage');
   return { default: mod.TranscriptionPage };
 });
+
+const MacroPage = import.meta.env.VITE_FLAVOR !== 'lite'
+  ? lazy(async () => {
+      const mod = await import('@/pages/MacroPage/MacroPage');
+      return { default: mod.MacroPage };
+    })
+  : null;
 
 // 路由表是唯一事实源：
 // - 新增页面：在这里追加一项即可，Sidebar 会自动渲染对应导航按钮
@@ -62,6 +70,15 @@ export const routes: RouteDefinition[] = [
     icon: AudioFileRoundedIcon,
     element: <TranscriptionPage />,
     slot: FEATURES.transcription ? 'primary' : 'hidden',
+    keepAlive: true,
+  },
+  {
+    id: 'macros',
+    labelKey: 'route.macros',
+    label: 'Macros',
+    icon: AccountTreeRoundedIcon,
+    element: MacroPage ? <MacroPage /> : <HomePage />,
+    slot: FEATURES.macros ? 'primary' : 'hidden',
     keepAlive: true,
   },
   {

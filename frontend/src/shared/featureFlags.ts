@@ -9,6 +9,10 @@
  *   - 未设置或设置为其他值 → 按 completion 构建（默认启用扒谱 UI，
  *     后端 GetCapability() 实际控制功能可用性）
  */
+export const IS_LITE_FLAVOR = import.meta.env.VITE_FLAVOR === 'lite'
+export const ENABLE_COMPLETION_FEATURES = !IS_LITE_FLAVOR
+export const ENABLE_MACROS = ENABLE_COMPLETION_FEATURES
+
 export const FEATURES = {
   /**
    * 是否为完全版（含音频转 MIDI 扒谱功能 UI）。
@@ -18,7 +22,12 @@ export const FEATURES = {
    * 返回 transcriptionEnabled: false 来告知前端功能实际不可用。
    */
   get transcription(): boolean {
-    return import.meta.env.VITE_FLAVOR !== 'lite'
+    return ENABLE_COMPLETION_FEATURES
+  },
+
+  /** 是否启用按键宏功能。宏属于 completion/admin 版本能力，lite 构建隐藏入口。 */
+  get macros(): boolean {
+    return ENABLE_MACROS
   },
 } as const
 

@@ -66,6 +66,25 @@ export {
 } from './hotkey/HotkeyService';
 export { recordFromEvent, type RecordedAccelerator } from './hotkey/keycodes';
 export {
+  MacroService,
+  type AssignableKey,
+  type MacroDetail,
+  type MacroDeviceKind,
+  type MacroErrorEvent,
+  type MacroRepeatMode,
+  type MacroRunState,
+  type MacroState,
+  type MacroStep,
+  type MacroStepEvent,
+  type MacroStepKind,
+  type MacroSummary,
+  type RecordRunState,
+  type RecordResult,
+  type RecordState,
+  type RecordStepEvent,
+  type SaveMacroRequest,
+} from './macro/MacroService';
+export {
   TranscriptionService,
   DEFAULT_TRANSCRIPTION_CONFIG,
   type TranscriptionConfig,
