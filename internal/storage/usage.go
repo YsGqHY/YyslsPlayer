@@ -11,26 +11,12 @@ type TableUsage struct {
 
 // Usage 汇总各表行数，并按行数占比把数据库文件大小估算到每张表。
 func (s *Store) Usage() []TableUsage {
-	counts := []struct {
-		name  string
-		model any
-	}{
-		{"preferences", &Preference{}},
-		{"app_settings", &AppSettings{}},
-		{MidiProjectsTable, &MidiProject{}},
-		{MidiEventsTable, &MidiEvent{}},
-		{MidiProfilesTable, &MidiProfile{}},
-		{Keymap36Table, &Keymap36{}},
-		{PlayHistoryTable, &PlayHistory{}},
-		{HotkeyBindingsTable, &HotkeyBinding{}},
-	}
-
-	usages := make([]TableUsage, 0, len(counts))
+	usages := make([]TableUsage, 0, len(AllModels))
 	var totalRows int64
-	for _, c := range counts {
+	for _, model := range AllModels {
 		var n int64
-		s.db().Model(c.model).Count(&n)
-		usages = append(usages, TableUsage{TableName: c.name, RowCount: n, Estimated: true})
+		s.db().Model(model.Model).Count(&n)
+		usages = append(usages, TableUsage{TableName: model.TableName, RowCount: n, Estimated: true})
 		totalRows += n
 	}
 

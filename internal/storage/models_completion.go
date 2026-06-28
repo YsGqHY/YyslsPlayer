@@ -37,6 +37,18 @@ func appendCompletionModels() {
 			LabelKey:  "transcriptionConfig",
 			Clearable: false,
 		},
+		ModelDescriptor{
+			Model:     &MacroProfile{},
+			TableName: MacroProfilesTable,
+			LabelKey:  "macroProfiles",
+			Clearable: false,
+		},
+		ModelDescriptor{
+			Model:     &MacroStep{},
+			TableName: MacroStepsTable,
+			LabelKey:  "macroSteps",
+			Clearable: false,
+		},
 	)
 }
 
@@ -44,29 +56,29 @@ func appendCompletionModels() {
 //
 // CreatedAt / UpdatedAt 为毫秒时间戳，由 Store 方法手动维护。
 type TranscriptionTask struct {
-	ID               uint    `gorm:"primaryKey;autoIncrement" json:"id"`
-	SourcePath       string  `gorm:"size:1024;not null" json:"sourcePath"`
-	SourceFileName   string  `gorm:"size:255" json:"sourceFileName"`
-	SourceHash       string  `gorm:"size:128" json:"sourceHash"`
-	Status           string  `gorm:"size:32;default:queued" json:"status"`
-	Stage            string  `gorm:"size:32" json:"stage"`
-	Progress         float64 `gorm:"default:0" json:"progress"`
-	ConfigJSON       string  `gorm:"type:text" json:"configJson"`
-	Engine           string  `gorm:"size:64" json:"engine"`
-	EngineVersion    string  `gorm:"size:64" json:"engineVersion"`
-	DurationMs       int64   `json:"durationMs"`
-	SampleRate       int     `json:"sampleRate"`
-	Channels         int     `json:"channels"`
-	ResultMidiPath   string  `gorm:"size:1024" json:"resultMidiPath"`
-	ImportedProjectID *uint  `json:"importedProjectId"`
-	SummaryJSON      string  `gorm:"type:text" json:"summaryJson"`
-	ReportJSON       string  `gorm:"type:text" json:"reportJson"`
-	ErrorCode        *string `gorm:"size:64" json:"errorCode"`
-	ErrorMessage     *string `gorm:"type:text" json:"errorMessage"`
-	CreatedAt        int64   `gorm:"autoCreateTime:false" json:"createdAt"`
-	UpdatedAt        int64   `gorm:"autoUpdateTime:false" json:"updatedAt"`
-	StartedAt        *int64  `json:"startedAt"`
-	FinishedAt       *int64  `json:"finishedAt"`
+	ID                uint    `gorm:"primaryKey;autoIncrement" json:"id"`
+	SourcePath        string  `gorm:"size:1024;not null" json:"sourcePath"`
+	SourceFileName    string  `gorm:"size:255" json:"sourceFileName"`
+	SourceHash        string  `gorm:"size:128" json:"sourceHash"`
+	Status            string  `gorm:"size:32;default:queued" json:"status"`
+	Stage             string  `gorm:"size:32" json:"stage"`
+	Progress          float64 `gorm:"default:0" json:"progress"`
+	ConfigJSON        string  `gorm:"type:text" json:"configJson"`
+	Engine            string  `gorm:"size:64" json:"engine"`
+	EngineVersion     string  `gorm:"size:64" json:"engineVersion"`
+	DurationMs        int64   `json:"durationMs"`
+	SampleRate        int     `json:"sampleRate"`
+	Channels          int     `json:"channels"`
+	ResultMidiPath    string  `gorm:"size:1024" json:"resultMidiPath"`
+	ImportedProjectID *uint   `json:"importedProjectId"`
+	SummaryJSON       string  `gorm:"type:text" json:"summaryJson"`
+	ReportJSON        string  `gorm:"type:text" json:"reportJson"`
+	ErrorCode         *string `gorm:"size:64" json:"errorCode"`
+	ErrorMessage      *string `gorm:"type:text" json:"errorMessage"`
+	CreatedAt         int64   `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt         int64   `gorm:"autoUpdateTime:false" json:"updatedAt"`
+	StartedAt         *int64  `json:"startedAt"`
+	FinishedAt        *int64  `json:"finishedAt"`
 }
 
 func (TranscriptionTask) TableName() string { return TranscriptionTasksTable }
@@ -82,7 +94,7 @@ type TranscriptionNote struct {
 	StartMs    int64   `json:"startMs"`
 	DurationMs int64   `json:"durationMs"`
 	Confidence float64 `json:"confidence"`
-	Source     string  `gorm:"size:32" json:"source"`    // model / postprocess / manual
+	Source     string  `gorm:"size:32" json:"source"`      // model / postprocess / manual
 	FlagsJSON  string  `gorm:"type:text" json:"flagsJson"` // lowConfidence / merged / quantized / droppedCandidate
 }
 
@@ -94,7 +106,7 @@ func (TranscriptionNote) TableName() string { return TranscriptionNotesTable }
 type TranscriptionAnalysis struct {
 	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
 	TaskID      uint   `gorm:"index" json:"taskId"`
-	Kind        string `gorm:"size:32" json:"kind"`   // tempo / key / scale / audioQuality / playability
+	Kind        string `gorm:"size:32" json:"kind"` // tempo / key / scale / audioQuality / playability
 	PayloadJSON string `gorm:"type:text" json:"payloadJson"`
 	CreatedAt   int64  `gorm:"autoCreateTime:false" json:"createdAt"`
 }
@@ -105,18 +117,18 @@ func (TranscriptionAnalysis) TableName() string { return TranscriptionAnalysisTa
 //
 // 始终只有 ID=1 一行，通过 Upsert 维护。
 type TranscriptionConfig struct {
-	ID                 uint    `gorm:"primaryKey" json:"id"`
-	Mode               string  `gorm:"size:32;default:melody" json:"mode"`        // melody / polyphonic
-	MinConfidence      float64 `gorm:"default:0.55" json:"minConfidence"`
-	MinDurationMs      int     `gorm:"default:60" json:"minDurationMs"`
-	MergeGapMs         int     `gorm:"default:40" json:"mergeGapMs"`
-	Quantize           string  `gorm:"size:16;default:light" json:"quantize"` // off / light / strong
-	MaxPolyphony       int     `gorm:"default:2" json:"maxPolyphony"`
-	TargetBaseNote     int     `gorm:"default:48" json:"targetBaseNote"`
-	TargetLaneCount    int     `gorm:"default:36" json:"targetLaneCount"`
-	OutOfRangePolicy   string  `gorm:"size:16;default:drop" json:"outOfRangePolicy"`
-	PreferMelodyRegister bool  `gorm:"default:true" json:"preferMelodyRegister"`
-	UpdatedAt          int64   `gorm:"autoUpdateTime:false" json:"updatedAt"`
+	ID                   uint    `gorm:"primaryKey" json:"id"`
+	Mode                 string  `gorm:"size:32;default:melody" json:"mode"` // melody / polyphonic
+	MinConfidence        float64 `gorm:"default:0.55" json:"minConfidence"`
+	MinDurationMs        int     `gorm:"default:60" json:"minDurationMs"`
+	MergeGapMs           int     `gorm:"default:40" json:"mergeGapMs"`
+	Quantize             string  `gorm:"size:16;default:light" json:"quantize"` // off / light / strong
+	MaxPolyphony         int     `gorm:"default:2" json:"maxPolyphony"`
+	TargetBaseNote       int     `gorm:"default:48" json:"targetBaseNote"`
+	TargetLaneCount      int     `gorm:"default:36" json:"targetLaneCount"`
+	OutOfRangePolicy     string  `gorm:"size:16;default:drop" json:"outOfRangePolicy"`
+	PreferMelodyRegister bool    `gorm:"default:true" json:"preferMelodyRegister"`
+	UpdatedAt            int64   `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
 
 func (TranscriptionConfig) TableName() string { return TranscriptionConfigTable }
