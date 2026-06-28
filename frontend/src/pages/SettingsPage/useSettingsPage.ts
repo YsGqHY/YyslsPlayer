@@ -22,8 +22,8 @@ export interface UseSettingsPageResult {
 // 设置页"框架" ViewModel：只管左列入口的展示与切换状态。
 // 各子页面的具体业务（主题 / 偏好 / 语言 / 数据存储）下沉到对应子目录的 useXxx。
 export const useSettingsPage = (): UseSettingsPageResult => {
-  const items = useMemo<SettingsItem[]>(
-    () => [
+  const items = useMemo<SettingsItem[]>(() => {
+    const allItems: SettingsItem[] = [
       {
         id: 'personalization',
         labelKey: 'settings.list.personalization.label',
@@ -64,9 +64,9 @@ export const useSettingsPage = (): UseSettingsPageResult => {
         labelKey: 'settings.list.database.label',
         descriptionKey: 'settings.list.database.description',
       },
-    ],
-    [],
-  );
+    ];
+    return allItems;
+  }, []);
 
   const [activeItemId, setActiveItemId] = useState<string>(items[0]!.id);
   const activeItem = useMemo<SettingsItem>(

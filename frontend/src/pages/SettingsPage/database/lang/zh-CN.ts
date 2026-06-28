@@ -100,6 +100,14 @@ export const databaseZhCN: Messages = {
           label: '全局快捷键',
           description: '各动作的全局热键绑定，受保护；如需重置请到快捷键设置页操作。',
         },
+        macroProfiles: {
+          label: '按键宏',
+          description: '用户创建的宏配置、触发组合键和运行策略，受保护。',
+        },
+        macroSteps: {
+          label: '宏积木块',
+          description: '按键宏的线性动作块、延迟和按键参数，随宏一起管理。',
+        },
       },
     },
   },

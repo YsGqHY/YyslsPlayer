@@ -95,6 +95,14 @@ export const databaseEnUS: Messages = {
           label: 'Global shortcuts',
           description: 'Per-action global hotkey bindings. Protected; use the shortcuts page to reset.',
         },
+        macroProfiles: {
+          label: 'Key macros',
+          description: 'User-created macro metadata, trigger shortcuts, and run policies. Protected.',
+        },
+        macroSteps: {
+          label: 'Macro blocks',
+          description: 'Linear keyboard action blocks, delays, and key parameters managed with macros.',
+        },
       },
     },
   },
