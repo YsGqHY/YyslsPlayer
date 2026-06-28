@@ -115,6 +115,18 @@ func (s *Service) apply(ctx context.Context, action KeyAction, opts RunOptions, 
 		return err
 	}
 
+	if action.Action == ActionText {
+		// Text injection bypasses the pressed-key set: each character is a
+		// self-contained Unicode keystroke with no hold/release tracking.
+		return s.applyText(ctx, action, opts)
+	}
+
+	if action.Action == ActionMouseMove {
+		// Cursor movement is a one-shot relative offset with no pressed-key
+		// tracking, mirroring the text path.
+		return s.applyMouseMove(ctx, action, opts)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -161,7 +173,67 @@ func (s *Service) apply(ctx context.Context, action KeyAction, opts RunOptions, 
 	}
 }
 
+// applyText injects a Unicode string via the driver's TextSender, if supported.
+// It runs outside the pressed-key mutex since text characters are one-shot and
+// never tracked as held keys.
+func (s *Service) applyText(ctx context.Context, action KeyAction, opts RunOptions) error {
+	if action.Text == "" {
+		return nil
+	}
+	if opts.DryRun {
+		return nil
+	}
+	sender, ok := s.driver.(TextSender)
+	if !ok {
+		return ErrTextUnsupported
+	}
+	textOpts := opts
+	if action.TextDelayMs > 0 {
+		textOpts.InterKeyDelayMs = int(action.TextDelayMs)
+	}
+	if err := sender.SendText(ctx, action.Text, textOpts); err != nil {
+		logx.For("keysim").Error("keysim send text failed", "runes", len([]rune(action.Text)), "error", err)
+		return err
+	}
+	return nil
+}
+
+// applyMouseMove dispatches a relative cursor move via the driver's MouseMover,
+// if supported. Like text injection it runs outside the pressed-key mutex since
+// movement carries no hold/release state.
+func (s *Service) applyMouseMove(ctx context.Context, action KeyAction, opts RunOptions) error {
+	if action.Dx == 0 && action.Dy == 0 {
+		return nil
+	}
+	if opts.DryRun {
+		return nil
+	}
+	mover, ok := s.driver.(MouseMover)
+	if !ok {
+		return ErrMouseMoveUnsupported
+	}
+	if err := mover.MoveMouse(ctx, action.Dx, action.Dy, opts); err != nil {
+		logx.For("keysim").Error("keysim mouse move failed", "dx", action.Dx, "dy", action.Dy, "error", err)
+		return err
+	}
+	return nil
+}
+
 func (s *Service) downLocked(ctx context.Context, event KeyEvent, opts RunOptions, collector *eventCollector) (bool, error) {
+	// Scroll-wheel events are one-shot notches: emit immediately and never track
+	// them in the pressed set (there is no matching release).
+	if event.Key.IsMouseWheel() {
+		if err := s.driver.Send(ctx, event, opts); err != nil {
+			logSendFailure(event, err)
+			return false, err
+		}
+		if !opts.DryRun && opts.InterKeyDelayMs > 0 {
+			time.Sleep(time.Duration(opts.InterKeyDelayMs) * time.Millisecond)
+		}
+		collector.add(event)
+		logDryRunEvent(opts, event)
+		return true, nil
+	}
 	id := keyID(event.Key)
 	entry := s.pressed[id]
 	if entry != nil {
@@ -183,6 +255,10 @@ func (s *Service) downLocked(ctx context.Context, event KeyEvent, opts RunOption
 }
 
 func (s *Service) upLocked(ctx context.Context, event KeyEvent, opts RunOptions, collector *eventCollector) error {
+	// Wheel events have no release; ignore any stray up.
+	if event.Key.IsMouseWheel() {
+		return nil
+	}
 	id := keyID(event.Key)
 	entry := s.pressed[id]
 	if entry == nil {
@@ -311,6 +387,16 @@ func eventFromAction(action KeyAction, key Key, kind PhysicalKind, modifier bool
 }
 
 func validateAction(action KeyAction) error {
+	if action.Action == ActionText {
+		if action.Text == "" {
+			return fmt.Errorf("%w: empty text", ErrInvalidAction)
+		}
+		return nil
+	}
+	if action.Action == ActionMouseMove {
+		// A zero/zero move is a no-op but not an error; the apply path skips it.
+		return nil
+	}
 	if action.Action != ActionPress && action.Action != ActionRelease {
 		return fmt.Errorf("%w: %s", ErrInvalidAction, action.Action)
 	}
@@ -326,6 +412,12 @@ func validateAction(action KeyAction) error {
 }
 
 func validateKey(key Key) error {
+	if key.IsMouse() {
+		if !validMouseButton(key.VirtualKey) {
+			return fmt.Errorf("%w: %s", ErrInvalidKey, key.Label)
+		}
+		return nil
+	}
 	if key.ScanCode == 0 && key.VirtualKey == 0 {
 		return fmt.Errorf("%w: %s", ErrInvalidKey, key.Label)
 	}
@@ -353,6 +445,9 @@ func tightChordOptions(opts RunOptions) RunOptions {
 }
 
 func keyID(key Key) string {
+	if key.IsMouse() {
+		return fmt.Sprintf("mouse:%d", key.VirtualKey)
+	}
 	if key.ScanCode != 0 {
 		return fmt.Sprintf("scan:%d", key.ScanCode)
 	}

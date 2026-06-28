@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -361,9 +362,12 @@ func (d *hookLaunderDriver) refreshChainHead(force bool) error {
 
 // Send dispatches a key event via SendInput. The WH_KEYBOARD_LL hook
 // automatically strips LLKHF_INJECTED from events carrying yyslsExtraInfo.
-func (d *hookLaunderDriver) Send(_ context.Context, event KeyEvent, opts RunOptions) error {
+func (d *hookLaunderDriver) Send(ctx context.Context, event KeyEvent, opts RunOptions) error {
 	if opts.DryRun {
 		return nil
+	}
+	if event.Key.IsMouse() {
+		return sendMouseEventCtx(ctx, event)
 	}
 	ki, err := keyboardInputFromEvent(event)
 	if err != nil {
@@ -388,6 +392,58 @@ func (d *hookLaunderDriver) Send(_ context.Context, event KeyEvent, opts RunOpti
 			return fmt.Errorf("%w: %v", ErrSendFailed, callErr)
 		}
 		return fmt.Errorf("%w: %s", ErrSendFailed, errMsg)
+	}
+	return nil
+}
+
+// MoveMouse moves the cursor by a relative (dx, dy) pixel offset via SendInput.
+// Mouse movement does not depend on the keyboard laundering hook.
+func (d *hookLaunderDriver) MoveMouse(_ context.Context, dx, dy int, opts RunOptions) error {
+	if opts.DryRun {
+		return nil
+	}
+	return sendMouseMove(dx, dy)
+}
+
+// SendText injects a Unicode string via SendInput using KEYEVENTF_UNICODE.
+// Each rune is encoded to UTF-16 and emitted as keydown/keyup pairs carrying
+// yyslsExtraInfo so the launder hook strips the injected flag. Surrogate pairs
+// (runes outside the BMP) are sent as two consecutive code units.
+func (d *hookLaunderDriver) SendText(ctx context.Context, text string, opts RunOptions) error {
+	if opts.DryRun || text == "" {
+		return nil
+	}
+	if err := d.ensureChainHead(); err != nil {
+		return err
+	}
+	delay := time.Duration(opts.InterKeyDelayMs) * time.Millisecond
+	units := utf16.Encode([]rune(text))
+	for i, unit := range units {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		for _, up := range [2]bool{false, true} {
+			ki := unicodeInput(unit, up)
+			in := input{Type: inputKeyboard, Ki: ki}
+			ret, _, callErr := procSendInput.Call(
+				uintptr(1),
+				uintptr(unsafe.Pointer(&in)),
+				unsafe.Sizeof(in),
+			)
+			if ret != 1 {
+				if callErr != nil && callErr != windows.ERROR_SUCCESS {
+					return fmt.Errorf("%w: %v", ErrSendFailed, callErr)
+				}
+				return fmt.Errorf("%w: sent=%d", ErrSendFailed, ret)
+			}
+		}
+		if delay > 0 && i < len(units)-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
 	}
 	return nil
 }

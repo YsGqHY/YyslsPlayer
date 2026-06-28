@@ -9,6 +9,12 @@ import (
 const (
 	ActionPress   ActionKind = "press"
 	ActionRelease ActionKind = "release"
+	// ActionText injects a Unicode string carried in KeyAction.Text rather than a
+	// single key. Mirrors Logitech G HUB's "text block" macro action.
+	ActionText ActionKind = "text"
+	// ActionMouseMove moves the cursor by a relative (Dx, Dy) pixel offset rather
+	// than pressing a key. Mirrors Logitech G HUB's mouse-movement macro action.
+	ActionMouseMove ActionKind = "mouseMove"
 
 	PhysicalDown PhysicalKind = "down"
 	PhysicalUp   PhysicalKind = "up"
@@ -24,6 +30,8 @@ var (
 	ErrReleaseFailed          = errors.New("KEYSIM_RELEASE_FAILED")
 	ErrInvalidAction          = errors.New("KEYSIM_INVALID_ACTION")
 	ErrInvalidKey             = errors.New("KEYSIM_INVALID_KEY")
+	ErrTextUnsupported        = errors.New("KEYSIM_TEXT_UNSUPPORTED")
+	ErrMouseMoveUnsupported   = errors.New("KEYSIM_MOUSE_MOVE_UNSUPPORTED")
 )
 
 type ActionKind string
@@ -33,6 +41,10 @@ type Key struct {
 	Label      string `json:"label"`
 	VirtualKey int    `json:"virtualKey"`
 	ScanCode   int    `json:"scanCode"`
+	// Kind distinguishes keyboard keys (empty / KeyKindKeyboard) from mouse
+	// buttons (KeyKindMouse). Empty keeps backward compatibility with existing
+	// MIDI/player keyframes and persisted macro steps.
+	Kind string `json:"kind,omitempty"`
 }
 
 type KeyAction struct {
@@ -44,6 +56,14 @@ type KeyAction struct {
 	Velocity       int        `json:"velocity"`
 	Key            Key        `json:"key"`
 	Modifiers      []Key      `json:"modifiers"`
+	// Text is the Unicode payload sent when Action == ActionText. Ignored otherwise.
+	Text string `json:"text,omitempty"`
+	// TextDelayMs optionally throttles per-character text injection (ActionText).
+	TextDelayMs int64 `json:"textDelayMs,omitempty"`
+	// Dx / Dy carry the relative cursor offset in pixels when Action ==
+	// ActionMouseMove. Ignored otherwise.
+	Dx int `json:"dx,omitempty"`
+	Dy int `json:"dy,omitempty"`
 }
 
 type KeyEvent struct {
@@ -88,6 +108,20 @@ type StateSnapshot struct {
 
 type Driver interface {
 	Send(ctx context.Context, event KeyEvent, opts RunOptions) error
+}
+
+// TextSender is implemented by drivers that can inject a Unicode string directly
+// (via KEYEVENTF_UNICODE on Windows). Drivers without text support are handled by
+// the keysim service returning ErrTextUnsupported.
+type TextSender interface {
+	SendText(ctx context.Context, text string, opts RunOptions) error
+}
+
+// MouseMover is implemented by drivers that can move the cursor by a relative
+// (dx, dy) pixel offset (via MOUSEEVENTF_MOVE on Windows). Drivers without move
+// support are handled by the keysim service returning ErrMouseMoveUnsupported.
+type MouseMover interface {
+	MoveMouse(ctx context.Context, dx, dy int, opts RunOptions) error
 }
 
 type ChainHeadRefresher interface {

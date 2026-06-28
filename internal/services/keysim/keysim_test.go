@@ -213,6 +213,39 @@ func TestDryRunLogLimitTruncatesResult(t *testing.T) {
 
 var errFakeSend = errors.New("fake send failed")
 
+func TestApplyTextDryRunSkipsSender(t *testing.T) {
+	svc := New(NewStubDriver())
+	// Dry-run never reaches the driver, so even a non-TextSender stub succeeds.
+	if _, err := svc.Apply(context.Background(), textAction("hi"), RunOptions{DryRun: true}); err != nil {
+		t.Fatalf("dry-run text apply failed: %v", err)
+	}
+}
+
+func TestApplyTextUnsupportedDriver(t *testing.T) {
+	svc := New(&fakeDriver{})
+	_, err := svc.Apply(context.Background(), textAction("hi"), RunOptions{DryRun: false})
+	if !errors.Is(err, ErrTextUnsupported) {
+		t.Fatalf("err = %v, want KEYSIM_TEXT_UNSUPPORTED", err)
+	}
+}
+
+func TestApplyTextForwardsToTextSender(t *testing.T) {
+	driver := &textRecordingDriver{}
+	svc := New(driver)
+	act := textAction("hi 世界")
+	act.TextDelayMs = 25
+	if _, err := svc.Apply(context.Background(), act, RunOptions{DryRun: false}); err != nil {
+		t.Fatalf("text apply failed: %v", err)
+	}
+	if driver.text != "hi 世界" {
+		t.Fatalf("text = %q, want %q", driver.text, "hi 世界")
+	}
+	// TextDelayMs maps onto the inter-key delay handed to the sender.
+	if driver.opts.InterKeyDelayMs != 25 {
+		t.Fatalf("inter-key delay = %d, want 25", driver.opts.InterKeyDelayMs)
+	}
+}
+
 type fakeDriver struct {
 	failLabel string
 	failKind  PhysicalKind
@@ -249,6 +282,25 @@ func action(kind ActionKind, key Key, modifiers ...Key) KeyAction {
 		Key:            key,
 		Modifiers:      modifiers,
 	}
+}
+
+func textAction(text string) KeyAction {
+	return KeyAction{Action: ActionText, Lane: -1, Velocity: 100, Text: text}
+}
+
+type textRecordingDriver struct {
+	text string
+	opts RunOptions
+}
+
+func (d *textRecordingDriver) Send(_ context.Context, _ KeyEvent, _ RunOptions) error {
+	return nil
+}
+
+func (d *textRecordingDriver) SendText(_ context.Context, text string, opts RunOptions) error {
+	d.text = text
+	d.opts = opts
+	return nil
 }
 
 func keyA() Key {
