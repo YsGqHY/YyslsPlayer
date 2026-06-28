@@ -63,7 +63,7 @@ tasks:
     cmds:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}}
       # Lite 版本：删除 completion 专属服务的 bindings，确保前端不引用
-      - '{{if ne .FLAVOR "completion"}}powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/bindings/YyslsPlayer/internal/services/transcription -ErrorAction SilentlyContinue; exit 0"{{else}}true{{end}}'
+      - '{{if ne .FLAVOR "completion"}}powershell -NoProfile -Command "Remove-Item -Recurse -Force frontend/bindings/YyslsPlayer/internal/services/transcription,frontend/bindings/YyslsPlayer/internal/services/macro -ErrorAction SilentlyContinue; exit 0"{{else}}true{{end}}'
 
   generate:icons:
     summary: Generates the Windows `.ico` from build/appicon.png
