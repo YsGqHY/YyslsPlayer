@@ -65,8 +65,8 @@ func Run(assets embed.FS) error {
 		application.NewService(playerSvc),
 		application.NewService(hotkeySvc),
 	}
-	// completion 版本会追加 transcription 等服务；lite 版本保持原样。
-	services, transcriptionSvc := registerCompletionServices(services, holder)
+	// completion 版本会追加 transcription、macro 等服务；lite 版本保持原样。
+	services, transcriptionSvc, macroSvc := registerCompletionServices(services, holder, ksDriver, hotkeySvc, playerSvc)
 
 	app := application.New(application.Options{
 		Name:        "YyslsPlayer",
@@ -82,6 +82,11 @@ func Run(assets embed.FS) error {
 	hotkeySvc.AttachEmitter(hotkey.EventEmitterFunc(func(name string, payload any) {
 		app.Event.Emit(name, payload)
 	}))
+	if macroSvc != nil {
+		macroSvc.AttachEmitter(func(name string, payload any) {
+			app.Event.Emit(name, payload)
+		})
+	}
 
 	// transcription service：completion 版本需要 emitter 和生命周期管理
 	if transcriptionSvc != nil {
@@ -93,12 +98,20 @@ func Run(assets embed.FS) error {
 		defer transcriptionSvc.Shutdown()
 	}
 
+	// completion 宏服务先把已启用宏同步为 hotkey 外部绑定快照；hotkey manager 启动后统一 apply。
+	if macroSvc != nil {
+		macroSvc.Start()
+	}
+
 	// 注册全局热键（读持久化绑定 + OS 注册 + 启动消息循环）。
 	// 注册失败逐项标记，不阻断应用启动。
 	if err := hotkeySvc.Start(); err != nil {
 		logx.For("app").Warn("hotkey start failed", "error", err)
 	}
 	defer hotkeySvc.Stop()
+	if macroSvc != nil {
+		defer macroSvc.Stop()
+	}
 
 	window := app.Window.NewWithOptions(windowOptions())
 

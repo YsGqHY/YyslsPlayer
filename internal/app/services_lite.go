@@ -3,6 +3,9 @@
 package app
 
 import (
+	"YyslsPlayer/internal/services/hotkey"
+	"YyslsPlayer/internal/services/keysim"
+	"YyslsPlayer/internal/services/player"
 	"YyslsPlayer/internal/storage"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -16,7 +19,14 @@ type TranscriptionLifecycle interface {
 	Shutdown()
 }
 
+// MacroLifecycle 是 lite / completion 共享的宏生命周期接口。
+type MacroLifecycle interface {
+	AttachEmitter(func(name string, payload any))
+	Start()
+	Stop()
+}
+
 // registerCompletionServices 是 lite 版本的空实现。
-func registerCompletionServices(services []application.Service, holder *storage.Holder) ([]application.Service, TranscriptionLifecycle) {
-	return services, nil
+func registerCompletionServices(services []application.Service, holder *storage.Holder, driver keysim.Driver, hotkeySvc *hotkey.Service, playerSvc *player.Service) ([]application.Service, TranscriptionLifecycle, MacroLifecycle) {
+	return services, nil, nil
 }
