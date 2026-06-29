@@ -19,6 +19,7 @@ export const libraryPageZhCN: Messages = {
       importFiles: '导入文件',
       importDirectory: '导入文件夹',
       importing: '导入中…',
+      downloadMidi: '我要下载MIDI',
       refresh: '刷新',
       refreshing: '刷新中…',
       delete: '删除项目',
@@ -198,6 +199,8 @@ export const libraryPageZhCN: Messages = {
       importPrefix: '导入失败：',
       savePrefix: '保存失败：',
       previewPrefix: '预览计划失败：',
+      openDownloadSiteTitle: '打开 MIDI 下载网站失败',
+      openDownloadSiteMessage: '无法打开系统默认浏览器：{{message}}',
     },
   },
 };

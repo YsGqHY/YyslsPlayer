@@ -1,3 +1,4 @@
+export { BrowserService } from './browser/BrowserService';
 export { PreferencesService } from './preferences/PreferencesService';
 export { AppearanceService, type ImportedBackgroundImage } from './appearance/AppearanceService';
 export {

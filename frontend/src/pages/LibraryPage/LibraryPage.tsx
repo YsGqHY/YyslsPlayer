@@ -1,5 +1,6 @@
 import {
   ClearRounded as ClearRoundedIcon,
+  CloudDownloadRounded as CloudDownloadRoundedIcon,
   DeleteRounded as DeleteRoundedIcon,
   DoneAllRounded as DoneAllRoundedIcon,
   DriveFolderUploadRounded as DriveFolderUploadRoundedIcon,
@@ -34,7 +35,7 @@ import { PianoRollView } from '@/components/PianoRollView';
 import { PreviewPanel } from '@/components/PreviewPanel';
 import { useT } from '@/i18n';
 import { useRouter } from '@/router';
-import { EditorSelectionService, MidiService, NativeDialogs, type MidiProjectSummary } from '@/services';
+import { BrowserService, EditorSelectionService, MidiService, NativeDialogs, type MidiProjectSummary } from '@/services';
 import { libraryPageStyles } from './LibraryPage.styles';
 import { useLibraryPage, type LibraryPanel, type LibrarySortValue, type PlaylistMode } from './useLibraryPage';
 import { ProjectItem } from './components/ProjectItem';
@@ -44,6 +45,10 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { StatChip } from './shared/StatChip';
 import { uniqueProfiles } from './utils/profile';
 import { formatDuration, formatPercent, midiNoteToName } from './utils/format';
+
+const MIDI_DOWNLOAD_URL = 'https://www.midishow.com/';
+
+const errorMessage = (e: unknown): string => e instanceof Error ? e.message : String(e ?? '');
 
 export const LibraryPage = () => {
   const theme = useTheme();
@@ -72,6 +77,17 @@ export const LibraryPage = () => {
   const importMidiDirectory = async (): Promise<void> => {
     const projectId = await vm.importMidiDirectory(t('library.dialog.openDirectoryTitle'));
     openImportedProject(projectId);
+  };
+
+  const showMidiDownloadSite = async (): Promise<void> => {
+    try {
+      await BrowserService.openURL(MIDI_DOWNLOAD_URL);
+    } catch (e) {
+      await NativeDialogs.error(
+        t('library.errors.openDownloadSiteTitle'),
+        t('library.errors.openDownloadSiteMessage', { message: errorMessage(e) }),
+      );
+    }
   };
 
   useEffect(() => {
@@ -352,17 +368,29 @@ export const LibraryPage = () => {
               </Button>
             </Box>
           ) : isLibraryEmpty ? (
-            <Box sx={styles.emptyList}>
-              <MusicNoteRoundedIcon fontSize="large" />
-              <Typography sx={{ mb: 0.5 }}>{t('library.list.empty')}</Typography>
-              <Box sx={{ ...styles.toolButtons, mt: 1.5, justifyContent: 'center' }}>
-                <Button variant="contained" startIcon={<FileUploadRoundedIcon />} onClick={() => void importMidiFiles()} disabled={vm.importing}>
-                  {t('library.actions.importFiles')}
+            <Box sx={styles.emptyLibraryList}>
+              <Box sx={styles.downloadMidiRow}>
+                <Button
+                  variant="contained"
+                  sx={styles.downloadMidiButton}
+                  startIcon={<CloudDownloadRoundedIcon />}
+                  onClick={() => void showMidiDownloadSite()}
+                >
+                  {t('library.actions.downloadMidi')}
                 </Button>
               </Box>
-              <Typography sx={{ mt: 1, fontSize: 12, color: 'text.secondary' }}>
-                {t('library.list.dragHint')}
-              </Typography>
+              <Box sx={styles.emptyList}>
+                <MusicNoteRoundedIcon fontSize="large" />
+                <Typography sx={{ mb: 0.5 }}>{t('library.list.empty')}</Typography>
+                <Box sx={{ ...styles.toolButtons, mt: 1.5, justifyContent: 'center' }}>
+                  <Button variant="contained" startIcon={<FileUploadRoundedIcon />} onClick={() => void importMidiFiles()} disabled={vm.importing}>
+                    {t('library.actions.importFiles')}
+                  </Button>
+                </Box>
+                <Typography sx={{ mt: 1, fontSize: 12, color: 'text.secondary' }}>
+                  {t('library.list.dragHint')}
+                </Typography>
+              </Box>
             </Box>
           ) : vm.loading && vm.projects.length === 0 ? (
             <Box sx={styles.emptyList}>

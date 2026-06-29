@@ -19,6 +19,7 @@ export const libraryPageEnUS: Messages = {
       importFiles: 'Import files',
       importDirectory: 'Import folder',
       importing: 'Importing…',
+      downloadMidi: 'Find MIDI online',
       refresh: 'Refresh',
       refreshing: 'Refreshing…',
       delete: 'Delete project',
@@ -198,6 +199,8 @@ export const libraryPageEnUS: Messages = {
       importPrefix: 'Import failed: ',
       savePrefix: 'Save failed: ',
       previewPrefix: 'PlayPlan failed: ',
+      openDownloadSiteTitle: 'Failed to open MIDI download site',
+      openDownloadSiteMessage: 'Unable to open the system default browser: {{message}}',
     },
   },
 };

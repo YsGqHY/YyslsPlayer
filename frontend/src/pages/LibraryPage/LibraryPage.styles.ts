@@ -810,6 +810,30 @@ export const libraryPageStyles = (theme: Theme): Record<string, SxProps<Theme>> 
       gridTemplateColumns: '1fr',
       gap: 1,
     },
+    emptyLibraryList: {
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+    },
+    downloadMidiRow: {
+      minHeight: 68,
+      px: 1,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    downloadMidiButton: {
+      minHeight: 40,
+      px: 1.5,
+      backgroundColor: fp.accent,
+      color: fp.bg.surface,
+      fontWeight: 850,
+      '&:hover': {
+        backgroundColor: fp.accentHover,
+      },
+    },
     emptyList: {
       minHeight: 220,
       display: 'flex',
