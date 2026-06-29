@@ -30,6 +30,18 @@ export const macroPageEnUS: Messages = {
         run: 'Run',
         stop: 'Stop',
         delete: 'Delete macro',
+        import: 'Import',
+        export: 'Export',
+      },
+      io: {
+        yamlFilter: 'YAML files (*.yaml; *.yml)',
+        exportTitle: 'Export macro to YAML',
+        exportFailTitle: 'Export failed',
+        importTitle: 'Import macros from YAML',
+        importFailTitle: 'Import failed',
+        importDoneTitle: 'Import complete',
+        importDoneMessage: 'Imported {{count}} macro(s). They are disabled by default; review triggers before enabling.',
+        importInvalid: 'Invalid YAML file or unsupported version.',
       },
       status: {
         dirty: 'Unsaved changes',
@@ -102,6 +114,9 @@ export const macroPageEnUS: Messages = {
         mouseMove: 'Move cursor by ({{dx}}, {{dy}}) px',
         text: 'Type "{{text}}" ({{count}} chars)',
       },
+      units: {
+        ms: 'ms',
+      },
       record: {
         start: 'Record',
         stop: 'Stop ({{count}})',
@@ -122,6 +137,7 @@ export const macroPageEnUS: Messages = {
         duplicate: 'Duplicate',
         delete: 'Delete',
         drag: 'Drag to reorder',
+        editDelay: 'Double-click to edit delay',
       },
       properties: {
         title: 'Properties',
@@ -129,6 +145,7 @@ export const macroPageEnUS: Messages = {
         name: 'Name',
         description: 'Description',
         trigger: 'Trigger shortcut',
+        triggerHint: 'Accepts a shortcut combo or a single ordinary key (e.g. A, Space). A single key is captured globally and fires this macro in any app.',
         enabled: 'Enable macro',
         interrupt: 'When triggered while running',
         repeatMode: 'Repeat mode',

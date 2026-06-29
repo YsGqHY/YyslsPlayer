@@ -7,6 +7,7 @@ require (
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.96
 	gitlab.com/gomidi/midi/v2 v2.3.23
 	golang.org/x/sys v0.43.0
+	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.1
 )
 

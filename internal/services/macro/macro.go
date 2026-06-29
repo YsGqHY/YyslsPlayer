@@ -14,7 +14,9 @@ import (
 	"YyslsPlayer/internal/services/keysim"
 	"YyslsPlayer/internal/services/player"
 	"YyslsPlayer/internal/storage"
+	"YyslsPlayer/internal/utils/filex"
 	"YyslsPlayer/internal/utils/logx"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -134,6 +136,7 @@ func (s *Service) SaveMacro(ctx context.Context, req SaveMacroRequest) (MacroDet
 		Name:               req.Name,
 		Description:        req.Description,
 		TriggerAccelerator: strings.TrimSpace(req.TriggerAccelerator),
+		AllowUnsafeTrigger: req.AllowUnsafeTrigger,
 		Enabled:            req.Enabled,
 		RepeatMode:         req.RepeatMode,
 		RepeatCount:        req.RepeatCount,
@@ -142,7 +145,7 @@ func (s *Service) SaveMacro(ctx context.Context, req SaveMacroRequest) (MacroDet
 	}
 	normalizeProfile(&profile)
 	if profile.TriggerAccelerator != "" {
-		acc, err := hotkey.NormalizeAccelerator(profile.TriggerAccelerator)
+		acc, err := normalizeTrigger(profile.TriggerAccelerator, profile.AllowUnsafeTrigger)
 		if err != nil {
 			return MacroDetailDTO{}, fmt.Errorf("%w: %w", ErrMacroTriggerInvalid, err)
 		}
@@ -172,6 +175,59 @@ func (s *Service) DeleteMacro(ctx context.Context, id uint) error {
 	return nil
 }
 
+// ExportMacro writes a single macro (with all steps) to a YAML file at
+// targetPath. The macro is rendered in a human-readable, hand-editable form.
+func (s *Service) ExportMacro(ctx context.Context, id uint, targetPath string) error {
+	_ = ctx
+	detail, ok := s.store().GetMacroDetail(id)
+	if !ok {
+		return ErrMacroNotFound
+	}
+	doc, err := toPortableDoc([]storage.MacroDetail{detail})
+	if err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshal macro yaml: %w", err)
+	}
+	return filex.WriteAtomic(targetPath, data, 0644)
+}
+
+// ImportMacros reads a YAML file and creates one new macro per entry. Imported
+// macros get fresh IDs and are disabled (so no hotkey is registered on import).
+// Returns the summaries of the created macros.
+func (s *Service) ImportMacros(ctx context.Context, sourcePath string) ([]MacroSummaryDTO, error) {
+	data, err := filex.ReadLimit(sourcePath, maxImportFileSize)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrMacroImportInvalid, err)
+	}
+	var doc portableDoc
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrMacroImportInvalid, err)
+	}
+	reqs, err := fromPortableDoc(doc)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MacroSummaryDTO, 0, len(reqs))
+	for i, req := range reqs {
+		detail, err := s.SaveMacro(ctx, req)
+		if err != nil {
+			// A bad trigger should not abort the whole file; retry without it.
+			if errors.Is(err, ErrMacroTriggerInvalid) {
+				req.TriggerAccelerator = ""
+				detail, err = s.SaveMacro(ctx, req)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("%w: macro %d: %w", ErrMacroImportInvalid, i+1, err)
+			}
+		}
+		out = append(out, detail.Profile)
+	}
+	return out, nil
+}
+
 func (s *Service) SetEnabled(ctx context.Context, id uint, enabled bool) (MacroDetailDTO, error) {
 	_ = ctx
 	row, err := s.store().UpdateMacroProfile(id, func(p *storage.MacroProfile) { p.Enabled = enabled })
@@ -186,17 +242,20 @@ func (s *Service) SetEnabled(ctx context.Context, id uint, enabled bool) (MacroD
 	return s.detailDTO(storage.MacroDetail{Profile: row, Steps: steps}), nil
 }
 
-func (s *Service) SetTrigger(ctx context.Context, id uint, accelerator string) (MacroDetailDTO, error) {
+func (s *Service) SetTrigger(ctx context.Context, id uint, accelerator string, allowUnsafe bool) (MacroDetailDTO, error) {
 	_ = ctx
 	accel := strings.TrimSpace(accelerator)
 	if accel != "" {
 		var err error
-		accel, err = hotkey.NormalizeAccelerator(accel)
+		accel, err = normalizeTrigger(accel, allowUnsafe)
 		if err != nil {
 			return MacroDetailDTO{}, fmt.Errorf("%w: %w", ErrMacroTriggerInvalid, err)
 		}
 	}
-	row, err := s.store().UpdateMacroProfile(id, func(p *storage.MacroProfile) { p.TriggerAccelerator = accel })
+	row, err := s.store().UpdateMacroProfile(id, func(p *storage.MacroProfile) {
+		p.TriggerAccelerator = accel
+		p.AllowUnsafeTrigger = allowUnsafe
+	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return MacroDetailDTO{}, ErrMacroNotFound
@@ -243,9 +302,19 @@ func (s *Service) syncHotkeys() {
 			Accelerator: p.TriggerAccelerator,
 			Enabled:     p.Enabled,
 			Label:       p.Name,
+			AllowUnsafe: p.AllowUnsafeTrigger,
 		})
 	}
 	s.hotkey.SetExternalBindings(SourceHotkey, bindings)
+}
+
+// normalizeTrigger 解析并规范化触发组合键。allowUnsafe 为 true 时放行裸普通键
+// （单键，无 Ctrl/Alt/Win 且非功能键）。
+func normalizeTrigger(raw string, allowUnsafe bool) (string, error) {
+	if allowUnsafe {
+		return hotkey.NormalizeAcceleratorAllowUnsafe(raw)
+	}
+	return hotkey.NormalizeAccelerator(raw)
 }
 
 func (s *Service) hotkeyStates() map[uint]hotkey.ExternalBindingState {
@@ -268,6 +337,7 @@ func (s *Service) summaryDTO(row storage.MacroProfile, stepCount int, states map
 		Name:               row.Name,
 		Description:        row.Description,
 		TriggerAccelerator: row.TriggerAccelerator,
+		AllowUnsafeTrigger: row.AllowUnsafeTrigger,
 		Enabled:            row.Enabled,
 		RepeatMode:         row.RepeatMode,
 		RepeatCount:        row.RepeatCount,

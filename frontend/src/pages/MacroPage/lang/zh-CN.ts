@@ -30,6 +30,18 @@ export const macroPageZhCN: Messages = {
         run: '运行',
         stop: '停止',
         delete: '删除宏',
+        import: '导入',
+        export: '导出',
+      },
+      io: {
+        yamlFilter: 'YAML 文件 (*.yaml; *.yml)',
+        exportTitle: '导出宏到 YAML',
+        exportFailTitle: '导出失败',
+        importTitle: '从 YAML 导入宏',
+        importFailTitle: '导入失败',
+        importDoneTitle: '导入完成',
+        importDoneMessage: '已导入 {{count}} 条宏（默认禁用，请检查触发键后再启用）。',
+        importInvalid: 'YAML 文件格式无效或版本不受支持。',
       },
       status: {
         dirty: '有未保存修改',
@@ -102,6 +114,9 @@ export const macroPageZhCN: Messages = {
         mouseMove: '移动光标 ({{dx}}, {{dy}}) 像素',
         text: '输入文本「{{text}}」（{{count}} 字）',
       },
+      units: {
+        ms: 'ms',
+      },
       record: {
         start: '录制',
         stop: '停止录制（{{count}}）',
@@ -122,6 +137,7 @@ export const macroPageZhCN: Messages = {
         duplicate: '复制',
         delete: '删除',
         drag: '拖动调整顺序',
+        editDelay: '双击编辑延迟',
       },
       properties: {
         title: '属性',
@@ -129,6 +145,7 @@ export const macroPageZhCN: Messages = {
         name: '名称',
         description: '描述',
         trigger: '触发组合键',
+        triggerHint: '支持组合键或单个普通键（如 A、空格）。单键会被全局拦截，在任何程序中按下都会触发本宏。',
         enabled: '启用宏',
         interrupt: '运行中再次触发',
         repeatMode: '重复模式',

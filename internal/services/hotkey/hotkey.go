@@ -345,7 +345,7 @@ func (s *Service) reapply(ctx context.Context) {
 				continue
 			}
 			tgt := externalTarget(source, b.TargetID)
-			acc, err := normalizeAccelerator(b.Accelerator)
+			acc, err := normalizeAcceleratorWithPolicy(b.Accelerator, b.AllowUnsafe)
 			if err != nil {
 				st.ErrorCode = acceleratorErrorCode(err)
 				externalState[source][b.TargetID] = st

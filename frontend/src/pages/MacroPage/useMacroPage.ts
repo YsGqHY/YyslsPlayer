@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/i18n';
 import {
   MacroService,
+  NativeDialogs,
   recordFromEvent,
   type AssignableKey,
   type MacroDetail,
@@ -19,6 +20,7 @@ export interface DraftMacro {
   name: string;
   description: string;
   triggerAccelerator: string;
+  allowUnsafeTrigger: boolean;
   enabled: boolean;
   repeatMode: MacroRepeatMode;
   repeatCount: number;
@@ -50,6 +52,8 @@ export interface UseMacroPageResult {
   createMacro: (name: string) => void;
   saveDraft: () => void;
   deleteActive: () => void;
+  exportActive: () => void;
+  importMacros: () => void;
   runActive: () => void;
   stopRunning: () => void;
   setEnabled: (enabled: boolean) => void;
@@ -57,6 +61,7 @@ export interface UseMacroPageResult {
   selectStep: (index: number) => void;
   addStep: (kind: MacroStepKind) => void;
   removeStep: (index: number) => void;
+  removeSteps: (indices: number[]) => void;
   moveStep: (index: number, direction: -1 | 1) => void;
   reorderStep: (fromIndex: number, toIndex: number) => void;
   duplicateStep: (index: number) => void;
@@ -182,6 +187,7 @@ const detailToDraft = (detail: MacroDetail): DraftMacro => ({
   name: detail.profile.name,
   description: detail.profile.description,
   triggerAccelerator: detail.profile.triggerAccelerator,
+  allowUnsafeTrigger: detail.profile.allowUnsafeTrigger,
   enabled: detail.profile.enabled,
   repeatMode: detail.profile.repeatMode || 'once',
   repeatCount: detail.profile.repeatCount || 1,
@@ -195,6 +201,8 @@ const draftToRequest = (draft: DraftMacro): SaveMacroRequest => ({
   name: draft.name,
   description: draft.description,
   triggerAccelerator: draft.triggerAccelerator,
+  // 触发输入框合并组合键与单键，统一放行裸普通键注册。
+  allowUnsafeTrigger: true,
   enabled: draft.enabled,
   repeatMode: draft.repeatMode,
   repeatCount: draft.repeatCount,
@@ -338,10 +346,8 @@ export const useMacroPage = (): UseMacroPageResult => {
         setRecordingHint('invalid');
         return;
       }
-      if (!recorded.safe) {
-        setRecordingHint('unsafe');
-        return;
-      }
+      // 触发输入框同时接受组合键与单键：不再拦截裸普通键，由后端按
+      // allowUnsafeTrigger=true 放行注册。
       setDraft((prev) => (prev ? { ...prev, triggerAccelerator: recorded.accelerator ?? '' } : prev));
       setRecordingTrigger(false);
       setRecordingHint(null);
@@ -412,6 +418,62 @@ export const useMacroPage = (): UseMacroPageResult => {
       .finally(() => aliveRef.current && setBusy(false));
   }, [activeId, loadDetail]);
 
+  const exportActive = useCallback((): void => {
+    if (!draft) return;
+    const safeName = (draft.name || 'macro').replace(/[\\/:*?"<>|]/g, '_').trim() || 'macro';
+    void (async () => {
+      try {
+        const target = await NativeDialogs.saveFile({
+          title: t('settings.macros.io.exportTitle'),
+          filename: `${safeName}.yaml`,
+          filters: [{ displayName: t('settings.macros.io.yamlFilter'), pattern: '*.yaml;*.yml' }],
+        });
+        if (!target) return;
+        await MacroService.exportMacro(draft.id, target);
+      } catch (e: unknown) {
+        await NativeDialogs.error(t('settings.macros.io.exportFailTitle'), errMsg(e));
+      }
+    })();
+  }, [draft, t]);
+
+  const importMacros = useCallback((): void => {
+    void (async () => {
+      const source = await NativeDialogs.openFile({
+        title: t('settings.macros.io.importTitle'),
+        filters: [{ displayName: t('settings.macros.io.yamlFilter'), pattern: '*.yaml;*.yml' }],
+      });
+      if (!source) return;
+      let created: MacroSummary[] = [];
+      let failure: string | null = null;
+      setBusy(true);
+      setError(null);
+      try {
+        created = await MacroService.importMacros(source);
+        if (!aliveRef.current) return;
+        const list = await MacroService.listMacros();
+        if (!aliveRef.current) return;
+        setMacros(list);
+        if (created[0]) await loadDetail(created[0].id);
+      } catch (e: unknown) {
+        const raw = errMsg(e);
+        failure = raw.includes('MACRO_IMPORT_INVALID') ? t('settings.macros.io.importInvalid') : raw;
+        if (aliveRef.current) setError(failure);
+      } finally {
+        // Reset busy BEFORE any dialog so the UI never stays wedged even if a
+        // dialog were to misbehave; dialogs are shown after the busy window.
+        if (aliveRef.current) setBusy(false);
+      }
+      if (failure) {
+        await NativeDialogs.error(t('settings.macros.io.importFailTitle'), failure);
+        return;
+      }
+      await NativeDialogs.info(
+        t('settings.macros.io.importDoneTitle'),
+        t('settings.macros.io.importDoneMessage', { count: created.length }),
+      );
+    })();
+  }, [loadDetail, t]);
+
   const runActive = useCallback((): void => {
     if (!activeId) return;
     setError(null);
@@ -423,8 +485,22 @@ export const useMacroPage = (): UseMacroPageResult => {
   }, []);
 
   const setEnabled = useCallback((enabled: boolean): void => {
+    if (!activeId) return;
+    // Optimistic local update so the toggle feels instant.
     setDraft((prev) => (prev ? { ...prev, enabled } : prev));
-  }, []);
+    void MacroService.setEnabled(activeId, enabled)
+      .then((detail) => {
+        if (!aliveRef.current) return;
+        // Patch only enabled in the saved baseline so other unsaved changes
+        // (steps, name, etc.) still register as dirty.
+        try {
+          const saved = JSON.parse(savedSigRef.current) as DraftMacro | null;
+          if (saved) savedSigRef.current = JSON.stringify({ ...saved, enabled });
+        } catch { /* ignore */ }
+        setMacros((prev) => prev.map((m) => (m.id === detail.profile.id ? detail.profile : m)));
+      })
+      .catch((e: unknown) => setError(errMsg(e)));
+  }, [activeId]);
 
   const updateDraft = useCallback((patch: Partial<DraftMacro>): void => {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -450,6 +526,18 @@ export const useMacroPage = (): UseMacroPageResult => {
       if (!prev) return prev;
       const steps = prev.steps.filter((_, i) => i !== index).map((s, i) => ({ ...s, orderIndex: i }));
       setSelectedStepIndex(steps.length === 0 ? -1 : Math.min(index, steps.length - 1));
+      return { ...prev, steps };
+    });
+  }, []);
+
+  const removeSteps = useCallback((indices: number[]): void => {
+    if (indices.length === 0) return;
+    const toRemove = new Set(indices);
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const steps = prev.steps.filter((_, i) => !toRemove.has(i)).map((s, i) => ({ ...s, orderIndex: i }));
+      const minIdx = Math.min(...indices);
+      setSelectedStepIndex(steps.length === 0 ? -1 : Math.min(minIdx, steps.length - 1));
       return { ...prev, steps };
     });
   }, []);
@@ -549,6 +637,8 @@ export const useMacroPage = (): UseMacroPageResult => {
     createMacro,
     saveDraft,
     deleteActive,
+    exportActive,
+    importMacros,
     runActive,
     stopRunning,
     setEnabled,
@@ -556,6 +646,7 @@ export const useMacroPage = (): UseMacroPageResult => {
     selectStep: setSelectedStepIndex,
     addStep,
     removeStep,
+    removeSteps,
     moveStep,
     reorderStep,
     duplicateStep,

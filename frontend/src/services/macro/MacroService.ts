@@ -5,9 +5,11 @@ import { FEATURES } from '@/shared/featureFlags';
 const METHOD_IDS = {
   CreateMacro: 1743859037,
   DeleteMacro: 1771404784,
+  ExportMacro: 1436054307,
   GetMacro: 219203127,
   GetRecordState: 2105863525,
   GetState: 3517949026,
+  ImportMacros: 1200929723,
   ListAssignableKeys: 2984877270,
   ListMacros: 3992847946,
   RunMacro: 1872574452,
@@ -42,6 +44,7 @@ export interface MacroSummary {
   name: string;
   description: string;
   triggerAccelerator: string;
+  allowUnsafeTrigger: boolean;
   enabled: boolean;
   repeatMode: MacroRepeatMode;
   repeatCount: number;
@@ -79,6 +82,7 @@ export interface SaveMacroRequest {
   name: string;
   description: string;
   triggerAccelerator: string;
+  allowUnsafeTrigger: boolean;
   enabled: boolean;
   repeatMode: MacroRepeatMode;
   repeatCount: number;
@@ -173,6 +177,7 @@ const mapSummary = (value: unknown): MacroSummary => {
     name: asString(r.name),
     description: asString(r.description),
     triggerAccelerator: asString(r.triggerAccelerator),
+    allowUnsafeTrigger: asBoolean(r.allowUnsafeTrigger),
     enabled: asBoolean(r.enabled),
     repeatMode: asString(r.repeatMode, 'once') as MacroRepeatMode,
     repeatCount: asNumber(r.repeatCount, 1),
@@ -271,6 +276,7 @@ const toBackendRequest = (req: SaveMacroRequest): SaveMacroRequest => ({
   name: req.name,
   description: req.description,
   triggerAccelerator: req.triggerAccelerator,
+  allowUnsafeTrigger: req.allowUnsafeTrigger,
   enabled: req.enabled,
   repeatMode: req.repeatMode,
   repeatCount: req.repeatCount,
@@ -305,12 +311,21 @@ export const MacroService = {
     await Call.ByID(METHOD_IDS.DeleteMacro, id);
   },
 
+  async exportMacro(id: number, targetPath: string): Promise<void> {
+    await Call.ByID(METHOD_IDS.ExportMacro, id, targetPath);
+  },
+
+  async importMacros(sourcePath: string): Promise<MacroSummary[]> {
+    const rows = await Call.ByID(METHOD_IDS.ImportMacros, sourcePath);
+    return (Array.isArray(rows) ? rows : []).map(mapSummary);
+  },
+
   async setEnabled(id: number, enabled: boolean): Promise<MacroDetail> {
     return mapDetail(await Call.ByID(METHOD_IDS.SetEnabled, id, enabled));
   },
 
-  async setTrigger(id: number, accelerator: string): Promise<MacroDetail> {
-    return mapDetail(await Call.ByID(METHOD_IDS.SetTrigger, id, accelerator));
+  async setTrigger(id: number, accelerator: string, allowUnsafe: boolean): Promise<MacroDetail> {
+    return mapDetail(await Call.ByID(METHOD_IDS.SetTrigger, id, accelerator, allowUnsafe));
   },
 
   async runMacro(id: number): Promise<MacroState> {

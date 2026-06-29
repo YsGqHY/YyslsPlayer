@@ -63,6 +63,20 @@ const isAffirmativeChoice = (choice: unknown, okLabel: string, cancelLabel: stri
   return normalized === normalizedOk || ['0', 'true', 'yes', 'y', 'ok', '是', '确定'].includes(normalized) || normalized !== '';
 };
 
+type MessageDialogFn = (options: { Title?: string; Message?: string; Buttons?: Array<{ Label: string; IsDefault?: boolean; IsCancel?: boolean }> }) => Promise<unknown>;
+
+// showMessageDialog drives Info / Warning / Error dialogs with an explicit OK
+// button. This is mandatory on Windows: the Wails backend blocks on a response
+// channel that is only fed by a button's OnClick callback, and it auto-injects
+// a default button ONLY on darwin. With no buttons on Windows the channel never
+// receives a value, so the JS Promise never resolves and any caller awaiting it
+// hangs forever (which can wedge UI "busy" state). The Windows MessageBox maps
+// MB_OK to the return string "Ok", so the button Label must be exactly "Ok" for
+// the backend's label match to fire its callback.
+const showMessageDialog = async (fn: MessageDialogFn, title: string, message: string): Promise<void> => {
+  await fn({ Title: title, Message: message, Buttons: [{ Label: 'Ok', IsDefault: true }] });
+};
+
 export const NativeDialogs = {
   // 打开文件选择器（单选）。取消返回 null。
   async openFile(options: OpenFileOptions = {}): Promise<string | null> {
@@ -156,14 +170,14 @@ export const NativeDialogs = {
   },
 
   async info(title: string, message: string): Promise<void> {
-    await Dialogs.Info({ Title: title, Message: message });
+    await showMessageDialog(Dialogs.Info, title, message);
   },
 
   async warning(title: string, message: string): Promise<void> {
-    await Dialogs.Warning({ Title: title, Message: message });
+    await showMessageDialog(Dialogs.Warning, title, message);
   },
 
   async error(title: string, message: string): Promise<void> {
-    await Dialogs.Error({ Title: title, Message: message });
+    await showMessageDialog(Dialogs.Error, title, message);
   },
 } as const;

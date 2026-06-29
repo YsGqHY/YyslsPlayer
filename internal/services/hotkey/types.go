@@ -84,6 +84,9 @@ type ExternalBinding struct {
 	Accelerator string `json:"accelerator"`
 	Enabled     bool   `json:"enabled"`
 	Label       string `json:"label"`
+	// AllowUnsafe 放行裸普通键触发（无 Ctrl/Alt/Win 且非功能键），
+	// 仅在调用方显式开启"允许单键触发"时为 true。
+	AllowUnsafe bool `json:"allowUnsafe"`
 }
 
 // ExternalBindingState 是外部绑定最近一次解析 / 注册结果。

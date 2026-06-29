@@ -13,6 +13,9 @@ type MacroProfile struct {
 	Name               string `gorm:"size:255;not null" json:"name"`
 	Description        string `gorm:"type:text" json:"description"`
 	TriggerAccelerator string `gorm:"size:128;index" json:"triggerAccelerator"`
+	// AllowUnsafeTrigger 允许触发组合键使用裸普通键（单键，无 Ctrl/Alt/Win 且非功能键）。
+	// 默认 false：沿用安全规则，拒绝会全局吞键的裸普通键。
+	AllowUnsafeTrigger bool   `gorm:"not null;default:0" json:"allowUnsafeTrigger"`
 	Enabled            bool   `gorm:"index" json:"enabled"`
 	RepeatMode         string `gorm:"size:32" json:"repeatMode"`
 	RepeatCount        int    `json:"repeatCount"`

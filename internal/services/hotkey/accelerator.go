@@ -350,6 +350,17 @@ func NormalizeAccelerator(raw string) (string, error) {
 	return acc.text, nil
 }
 
+// NormalizeAcceleratorAllowUnsafe 与 NormalizeAccelerator 相同，但放行"裸普通键"
+// （无 Ctrl/Alt/Win 修饰且非功能键）。仅供用户显式开启"允许单键触发"的场景使用，
+// 调用方需自行承担全局吞键的副作用。解析失败仍返回 ErrInvalidAccelerator。
+func NormalizeAcceleratorAllowUnsafe(raw string) (string, error) {
+	acc, err := parseAccelerator(raw)
+	if err != nil {
+		return "", err
+	}
+	return acc.text, nil
+}
+
 // AcceleratorMainVK 返回组合键的主键虚拟键码，供"按住重复"等需要轮询触发键
 // 物理状态的场景使用。解析失败返回 (0, false)。
 func AcceleratorMainVK(raw string) (int, bool) {
@@ -363,11 +374,17 @@ func AcceleratorMainVK(raw string) (int, bool) {
 // normalizeAccelerator 解析 + 安全校验，返回规范化结构。
 // 解析失败返回 ErrInvalidAccelerator；不安全返回 ErrUnsafeAccelerator。
 func normalizeAccelerator(raw string) (accelerator, error) {
+	return normalizeAcceleratorWithPolicy(raw, false)
+}
+
+// normalizeAcceleratorWithPolicy 在 normalizeAccelerator 基础上允许调用方放行裸普通键。
+// allowUnsafe 为 true 时跳过 isSafeForGlobal 校验，仅做解析。
+func normalizeAcceleratorWithPolicy(raw string, allowUnsafe bool) (accelerator, error) {
 	acc, err := parseAccelerator(raw)
 	if err != nil {
 		return accelerator{}, err
 	}
-	if !isSafeForGlobal(acc) {
+	if !allowUnsafe && !isSafeForGlobal(acc) {
 		return accelerator{}, fmt.Errorf("%w: %s", ErrUnsafeAccelerator, acc.text)
 	}
 	return acc, nil

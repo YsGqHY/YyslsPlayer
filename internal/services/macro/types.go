@@ -15,11 +15,11 @@ const (
 	InterruptIgnore  = "ignore"
 	InterruptRestart = "stop-current-and-run"
 
-	StepDelay     = "delay"
-	StepKeyTap    = "keyTap"
-	StepKeyDown   = "keyDown"
-	StepKeyUp     = "keyUp"
-	StepChordTap  = "chordTap"
+	StepDelay       = "delay"
+	StepKeyTap      = "keyTap"
+	StepKeyDown     = "keyDown"
+	StepKeyUp       = "keyUp"
+	StepChordTap    = "chordTap"
 	StepMouseTap    = "mouseTap"
 	StepMouseDown   = "mouseDown"
 	StepMouseUp     = "mouseUp"
@@ -57,6 +57,7 @@ var (
 	ErrMacroNoSteps        = errors.New("MACRO_NO_STEPS")
 	ErrMacroTriggerInvalid = errors.New("MACRO_TRIGGER_INVALID")
 	ErrMacroRecordUnsup    = errors.New("MACRO_RECORD_UNSUPPORTED")
+	ErrMacroImportInvalid  = errors.New("MACRO_IMPORT_INVALID")
 )
 
 type MacroSummaryDTO struct {
@@ -64,6 +65,7 @@ type MacroSummaryDTO struct {
 	Name               string `json:"name"`
 	Description        string `json:"description"`
 	TriggerAccelerator string `json:"triggerAccelerator"`
+	AllowUnsafeTrigger bool   `json:"allowUnsafeTrigger"`
 	Enabled            bool   `json:"enabled"`
 	RepeatMode         string `json:"repeatMode"`
 	RepeatCount        int    `json:"repeatCount"`
@@ -101,6 +103,7 @@ type SaveMacroRequest struct {
 	Name               string         `json:"name"`
 	Description        string         `json:"description"`
 	TriggerAccelerator string         `json:"triggerAccelerator"`
+	AllowUnsafeTrigger bool           `json:"allowUnsafeTrigger"`
 	Enabled            bool           `json:"enabled"`
 	RepeatMode         string         `json:"repeatMode"`
 	RepeatCount        int            `json:"repeatCount"`
@@ -162,6 +165,6 @@ type RecordStepEventDTO struct {
 
 // RecordResultDTO is returned by StopRecording with the full captured timeline.
 type RecordResultDTO struct {
-	Steps     []MacroStepDTO `json:"steps"`
-	DurationMs int64         `json:"durationMs"`
+	Steps      []MacroStepDTO `json:"steps"`
+	DurationMs int64          `json:"durationMs"`
 }
