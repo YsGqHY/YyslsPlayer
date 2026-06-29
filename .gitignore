@@ -30,3 +30,8 @@ CLAUDE.md
 /.yystmp
 .narrafork/
 .worktrees/
+
+# Windows shell cache artifacts created by accidental %USERPROFILE% expansion
+%USERPROFILE%/
+frontend/%USERPROFILE%/
+
