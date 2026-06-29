@@ -4,6 +4,8 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded';
 import KeyboardRoundedIcon from '@mui/icons-material/KeyboardRounded';
 import MouseRoundedIcon from '@mui/icons-material/MouseRounded';
@@ -33,6 +35,12 @@ export const MacroPage = () => {
   const running = vm.runningState === 'running' || vm.runningState === 'stopping';
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const rangeDragStartRef = useRef<number | null>(null);
+  const rangeHasDraggedRef = useRef(false);
+
+  // Clear multi-selection when switching macros.
+  useEffect(() => { setSelectedIndices(new Set()); }, [vm.activeId]);
   // Native HTML5 drag suppresses wheel events in WebView2, so the block list
   // cannot be scrolled with the mouse wheel while dragging. We emulate the
   // common "edge auto-scroll" behaviour: while a drag hovers near the top or
@@ -95,6 +103,45 @@ export const MacroPage = () => {
     resetDrag();
   };
 
+  const handleBlockClick = (index: number): void => {
+    // Suppress single-select collapse when a range drag just ended.
+    if (rangeHasDraggedRef.current) { rangeHasDraggedRef.current = false; return; }
+    vm.selectStep(index);
+    setSelectedIndices(new Set([index]));
+  };
+
+  const handleRangeStart = (index: number): void => {
+    rangeDragStartRef.current = index;
+    rangeHasDraggedRef.current = false;
+    vm.selectStep(index);
+    setSelectedIndices(new Set([index]));
+  };
+
+  const handleRailMouseMove = (e: React.MouseEvent): void => {
+    if (rangeDragStartRef.current === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const blockEl = el?.closest('[data-block-index]');
+    if (!blockEl) return;
+    const idx = Number(blockEl.getAttribute('data-block-index'));
+    if (!Number.isFinite(idx)) return;
+    const start = rangeDragStartRef.current;
+    const lo = Math.min(start, idx), hi = Math.max(start, idx);
+    rangeHasDraggedRef.current = lo !== hi;
+    setSelectedIndices(new Set(Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)));
+  };
+
+  const handleRailMouseUp = (): void => { rangeDragStartRef.current = null; };
+
+  const handleRailKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Delete' && selectedIndices.size > 0) {
+      vm.removeSteps([...selectedIndices]);
+      setSelectedIndices(new Set());
+    } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (vm.draft) setSelectedIndices(new Set(vm.draft.steps.map((_, i) => i)));
+    }
+  };
+
   const confirmDelete = async (): Promise<void> => {
     if (!vm.draft) return;
     const ok = await NativeDialogs.confirm({
@@ -120,9 +167,14 @@ export const MacroPage = () => {
         <Box sx={styles.panel}>
           <Box sx={styles.panelHeader}>
             <Typography sx={styles.panelTitle}>{t('settings.macros.list.title')}</Typography>
-            <IconTextButton styles={styles} onClick={() => vm.createMacro(t('settings.macros.defaults.name'))} disabled={vm.busy} label={t('settings.macros.actions.new')}>
-              <AddRoundedIcon fontSize="small" />
-            </IconTextButton>
+            <Box sx={{ display: 'flex', gap: 0.75 }}>
+              <IconTextButton styles={styles} onClick={vm.importMacros} disabled={vm.busy} label={t('settings.macros.actions.import')}>
+                <FileUploadRoundedIcon fontSize="small" />
+              </IconTextButton>
+              <IconTextButton styles={styles} onClick={() => vm.createMacro(t('settings.macros.defaults.name'))} disabled={vm.busy} label={t('settings.macros.actions.new')}>
+                <AddRoundedIcon fontSize="small" />
+              </IconTextButton>
+            </Box>
           </Box>
           <Box sx={styles.list}>
             {vm.macros.length === 0 && <Typography sx={styles.empty}>{t('settings.macros.list.empty')}</Typography>}
@@ -150,6 +202,9 @@ export const MacroPage = () => {
             <Box sx={{ display: 'flex', gap: 0.75 }}>
               <IconTextButton styles={styles} onClick={vm.saveDraft} disabled={!vm.draft || !vm.dirty || vm.busy} label={t('settings.macros.actions.save')} primary>
                 <SaveRoundedIcon fontSize="small" />
+              </IconTextButton>
+              <IconTextButton styles={styles} onClick={vm.exportActive} disabled={!vm.draft || vm.busy} label={t('settings.macros.actions.export')}>
+                <FileDownloadRoundedIcon fontSize="small" />
               </IconTextButton>
               {running ? (
                 <IconTextButton styles={styles} onClick={vm.stopRunning} disabled={vm.busy} label={t('settings.macros.actions.stop')} danger>
@@ -205,8 +260,12 @@ export const MacroPage = () => {
           </Box>
 
           <Box
-            sx={styles.blockRail}
+            sx={{ ...styles.blockRail, outline: 'none' }}
             ref={railRef}
+            tabIndex={0}
+            onKeyDown={handleRailKeyDown}
+            onMouseMove={handleRailMouseMove}
+            onMouseUp={handleRailMouseUp}
             onDragOver={dragIndex !== null ? (e: React.DragEvent) => { e.preventDefault(); updateAutoScroll(e.clientY); } : undefined}
           >
             {!vm.draft || vm.draft.steps.length === 0 ? (
@@ -221,6 +280,9 @@ export const MacroPage = () => {
                   styles={styles}
                   dragging={dragIndex === index}
                   dragOver={dragOverIndex === index && dragIndex !== null && dragIndex !== index}
+                  isMultiSelected={selectedIndices.has(index)}
+                  onBlockClick={handleBlockClick}
+                  onRangeStart={handleRangeStart}
                   onDragStart={() => setDragIndex(index)}
                   onDragEnter={() => setDragOverIndex(index)}
                   onDrop={() => handleDrop(index)}
@@ -251,6 +313,7 @@ export const MacroPage = () => {
                   {vm.recordingTrigger ? t('settings.macros.trigger.recording') : vm.draft.triggerAccelerator || t('settings.macros.trigger.none')}
                 </Box>
                 {vm.recordingHint && <Typography sx={styles.hintText}>{t(`settings.macros.trigger.hints.${vm.recordingHint}`)}</Typography>}
+                <Typography sx={styles.hintText}>{t('settings.macros.properties.triggerHint')}</Typography>
               </Box>
 
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -320,13 +383,16 @@ const AddStepButton = ({ kind, vm, styles }: { kind: MacroStepKind; vm: UseMacro
   );
 };
 
-const MacroBlock = ({ step, index, vm, styles, dragging, dragOver, onDragStart, onDragEnter, onDrop, onDragEnd }: {
+const MacroBlock = ({ step, index, vm, styles, dragging, dragOver, isMultiSelected, onBlockClick, onRangeStart, onDragStart, onDragEnter, onDrop, onDragEnd }: {
   step: MacroStep;
   index: number;
   vm: UseMacroPageResult;
   styles: Styles;
   dragging: boolean;
   dragOver: boolean;
+  isMultiSelected: boolean;
+  onBlockClick: (index: number) => void;
+  onRangeStart: (index: number) => void;
   onDragStart: () => void;
   onDragEnter: () => void;
   onDrop: () => void;
@@ -334,13 +400,20 @@ const MacroBlock = ({ step, index, vm, styles, dragging, dragOver, onDragStart, 
 }) => {
   const t = useT();
   const isRunning = vm.runningMacroId === vm.activeId && vm.runningStepIndex === index && vm.runningState === 'running';
-  const isSelected = vm.selectedStepIndex === index;
   return (
     <Box
       component="button"
       type="button"
-      sx={[styles.block, isSelected ? styles.blockSelected : false, isRunning ? styles.blockRunning : false, dragging ? styles.blockDragging : false, dragOver ? styles.blockDragOver : false] as SxProps<Theme>}
-      onClick={() => vm.selectStep(index)}
+      data-block-index={index}
+      sx={[styles.block, isMultiSelected ? styles.blockSelected : false, isRunning ? styles.blockRunning : false, dragging ? styles.blockDragging : false, dragOver ? styles.blockDragOver : false] as SxProps<Theme>}
+      onClick={() => onBlockClick(index)}
+      onMouseDown={(e: React.MouseEvent) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (e.button === 0 && e.clientX > rect.left + rect.width / 2) {
+          e.preventDefault();
+          onRangeStart(index);
+        }
+      }}
       onDragOver={(e: React.DragEvent) => { e.preventDefault(); }}
       onDragEnter={(e: React.DragEvent) => { e.preventDefault(); onDragEnter(); }}
       onDrop={(e: React.DragEvent) => { e.preventDefault(); onDrop(); }}
@@ -357,10 +430,24 @@ const MacroBlock = ({ step, index, vm, styles, dragging, dragOver, onDragStart, 
       >
         {step.kind === 'delay' ? <TimerRoundedIcon fontSize="small" /> : step.kind === 'text' ? <TextFieldsRoundedIcon fontSize="small" /> : step.kind === 'mouseMove' ? <OpenWithRoundedIcon fontSize="small" /> : isMouseKind(step.kind) ? <MouseRoundedIcon fontSize="small" /> : <AccountTreeRoundedIcon fontSize="small" />}
       </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={styles.blockTitle}>{t(`settings.macros.stepKinds.${step.kind}.label`)}</Typography>
-        <Typography sx={styles.blockDesc}>{stepDescription(step, t)}</Typography>
+      <Box sx={styles.blockBadges}>
+        {step.kind === 'delay' ? (
+          <>
+            <EditableDelayBadge
+              value={step.waitMs}
+              onCommit={(next) => vm.updateStep(index, { waitMs: next })}
+              styles={styles}
+              title={t('settings.macros.block.editDelay')}
+            />
+            <Box sx={styles.blockBadge}>{t('settings.macros.units.ms')}</Box>
+          </>
+        ) : (
+          stepBadges(step, t).map((badge, i) => (
+            <Box key={i} sx={styles.blockBadge}>{badge}</Box>
+          ))
+        )}
       </Box>
+      <Typography sx={styles.blockTitle}>{t(`settings.macros.stepKinds.${step.kind}.label`)}</Typography>
       <Box sx={styles.blockActions} onClick={(e) => e.stopPropagation()}>
         <SmallIconButton styles={styles} onClick={() => vm.moveStep(index, -1)} disabled={index === 0} label={t('settings.macros.block.moveUp')}>
           <ArrowUpwardRoundedIcon fontSize="small" />
@@ -375,6 +462,66 @@ const MacroBlock = ({ step, index, vm, styles, dragging, dragOver, onDragStart, 
           <DeleteOutlineRoundedIcon fontSize="small" />
         </SmallIconButton>
       </Box>
+    </Box>
+  );
+};
+
+// EditableDelayBadge renders the delay value badge. A double-click swaps the
+// static chip for an inline number input so users can retype the millisecond
+// value directly on the timeline. Editing is committed on Enter / blur and
+// abandoned on Escape; clicks are stopped from bubbling to the block's select
+// / drag handlers.
+const EditableDelayBadge = ({ value, onCommit, styles, title }: { value: number; onCommit: (next: number) => void; styles: Styles; title: string }) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(String(value));
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const beginEdit = (): void => {
+    setText(String(value));
+    setEditing(true);
+  };
+
+  const commit = (): void => {
+    const next = Math.max(0, Math.trunc(Number(text)));
+    if (Number.isFinite(next) && next !== value) onCommit(next);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Box
+        component="input"
+        type="number"
+        ref={inputRef}
+        sx={[styles.blockBadge, styles.blockBadgeInput] as SxProps<Theme>}
+        value={text}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') commit();
+          else if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <Box
+      sx={[styles.blockBadge, styles.blockBadgeEditable] as SxProps<Theme>}
+      title={title}
+      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); beginEdit(); }}
+    >
+      {value}
     </Box>
   );
 };
@@ -551,37 +698,33 @@ const SmallIconButton = ({ children, label, onClick, disabled, styles }: { child
   </Box>
 );
 
-const stepDescription = (step: MacroStep, t: ReturnType<typeof useT>): string => {
+// stepBadges renders the most salient parameters of a step as small chips shown
+// to the left of the centered title (e.g. the key label, or a delay's value and
+// unit), replacing the old grey subtitle line.
+const stepBadges = (step: MacroStep, t: ReturnType<typeof useT>): string[] => {
   switch (step.kind) {
     case 'delay':
-      return t('settings.macros.stepDesc.delay', { ms: step.waitMs });
+      return [String(step.waitMs), t('settings.macros.units.ms')];
     case 'keyTap':
-      return t('settings.macros.stepDesc.keyTap', { key: step.keyLabel, ms: step.durationMs });
     case 'keyDown':
-      return t('settings.macros.stepDesc.keyDown', { key: step.keyLabel });
     case 'keyUp':
-      return t('settings.macros.stepDesc.keyUp', { key: step.keyLabel });
-    case 'chordTap':
-      return t('settings.macros.stepDesc.chordTap', { mod: joinModifierLabels(step.modifierKeysJson), key: step.keyLabel, ms: step.durationMs });
     case 'mouseTap':
-      return t('settings.macros.stepDesc.mouseTap', { key: step.keyLabel, ms: step.durationMs });
     case 'mouseDown':
-      return t('settings.macros.stepDesc.mouseDown', { key: step.keyLabel });
     case 'mouseUp':
-      return t('settings.macros.stepDesc.mouseUp', { key: step.keyLabel });
     case 'mouseScroll':
-      return t('settings.macros.stepDesc.mouseScroll', { key: step.keyLabel });
+      return [step.keyLabel];
+    case 'chordTap':
+      return [...joinModifierLabels(step.modifierKeysJson).split(' + '), step.keyLabel];
     case 'mouseMove': {
       const { dx, dy } = movePayloadValue(step.payloadJson);
-      return t('settings.macros.stepDesc.mouseMove', { dx, dy });
+      return [`${dx}`, `${dy}`];
     }
     case 'text': {
       const text = textPayloadValue(step.payloadJson);
-      const preview = text.length > 24 ? `${text.slice(0, 24)}…` : text;
-      return t('settings.macros.stepDesc.text', { text: preview, count: [...text].length });
+      return [text.length > 10 ? `${text.slice(0, 10)}…` : text || '—'];
     }
     default:
-      return step.kind;
+      return [];
   }
 };
 
