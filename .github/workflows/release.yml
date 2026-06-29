@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish release
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        shell: pwsh
+        run: |
+          corepack enable pnpm
+          corepack prepare pnpm@11.5.0 --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.51.1
+          repo-token: ${{ github.token }}
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.96
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $taskfile = Get-Content -Raw -Path Taskfile.yml
+          if ($taskfile -notmatch 'APP_VERSION:\s*"?([^"\r\n]+)"?') {
+            throw 'APP_VERSION not found in Taskfile.yml'
+          }
+
+          $version = $Matches[1].Trim()
+          $shortSha = '${{ github.sha }}'.Substring(0, 7)
+          $tag = "v$version-${{ github.run_number }}"
+          $title = "YyslsPlayer $version build ${{ github.run_number }}"
+
+          "app_version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "title=$title" >> $env:GITHUB_OUTPUT
+          "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows artifacts
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force bin -ErrorAction SilentlyContinue
+          task build
+
+      - name: List artifacts
+        shell: pwsh
+        run: Get-ChildItem -Path bin -File | Select-Object Name, Length, LastWriteTime
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: |
+          $notes = "Automated release from master push.`n`nCommit: ${{ github.sha }}`nBuild: ${{ github.run_number }}"
+
+          gh release create '${{ steps.meta.outputs.tag }}' 'bin/*' `
+            --repo '${{ github.repository }}' `
+            --target '${{ github.sha }}' `
+            --title '${{ steps.meta.outputs.title }}' `
+            --notes $notes `
+            --latest
