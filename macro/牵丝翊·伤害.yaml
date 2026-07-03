@@ -1,0 +1,200 @@
+version: 1
+macros:
+    - name: 牵丝1·伤害
+      trigger: G
+      repeatMode: hold
+      repeatCount: 1
+      interruptPolicy: ignore
+      steps:
+        - kind: keyDown
+          key:
+            label: '`'
+            virtualKey: 192
+            scanCode: 41
+        - kind: delay
+          waitMs: 50
+        - kind: keyUp
+          key:
+            label: '`'
+            virtualKey: 192
+            scanCode: 41
+        - kind: delay
+          waitMs: 300
+        - kind: keyDown
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 114
+        - kind: keyUp
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 1700
+        - kind: keyDown
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: delay
+          waitMs: 82
+        - kind: keyUp
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: delay
+          waitMs: 600
+        - kind: mouseScroll
+          key:
+            label: Wheel Down
+            virtualKey: 7
+            scanCode: 0
+        - kind: delay
+          waitMs: 1500
+        - kind: keyDown
+          key:
+            label: '`'
+            virtualKey: 192
+            scanCode: 41
+        - kind: delay
+          waitMs: 105
+        - kind: keyUp
+          key:
+            label: '`'
+            virtualKey: 192
+            scanCode: 41
+        - kind: delay
+          waitMs: 900
+        - kind: mouseDown
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 93
+        - kind: mouseUp
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 2100
+        - kind: mouseDown
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 98
+        - kind: mouseUp
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 900
+        - kind: mouseDown
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 100
+        - kind: mouseUp
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 750
+        - kind: mouseDown
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 73
+        - kind: mouseUp
+          key:
+            label: Mouse Left
+            virtualKey: 1
+            scanCode: 0
+        - kind: delay
+          waitMs: 1700
+        - kind: keyDown
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 69
+        - kind: keyUp
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 800
+        - kind: keyDown
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 92
+        - kind: keyUp
+          key:
+            label: Q
+            virtualKey: 81
+            scanCode: 16
+        - kind: delay
+          waitMs: 500
+        - kind: keyDown
+          key:
+            label: R
+            virtualKey: 82
+            scanCode: 19
+        - kind: delay
+          waitMs: 2400
+        - kind: keyDown
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: delay
+          waitMs: 98
+        - kind: keyUp
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: delay
+          waitMs: 3000
+        - kind: keyDown
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: delay
+          waitMs: 88
+        - kind: keyUp
+          key:
+            label: F
+            virtualKey: 70
+            scanCode: 33
+        - kind: keyUp
+          key:
+            label: R
+            virtualKey: 82
+            scanCode: 19
+        - kind: delay
+          waitMs: 500
+        - kind: mouseScroll
+          key:
+            label: Wheel Down
+            virtualKey: 7
+            scanCode: 0
