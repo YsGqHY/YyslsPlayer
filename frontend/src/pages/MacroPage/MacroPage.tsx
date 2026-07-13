@@ -21,7 +21,7 @@ import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import { Box, Switch, Typography, useTheme } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material';
 import { useT } from '@/i18n';
-import { NativeDialogs, type MacroRepeatMode, type MacroStep, type MacroStepKind, type MacroSummary } from '@/services';
+import { NativeDialogs, type MacroInterruptPolicy, type MacroRepeatMode, type MacroStep, type MacroStepKind, type MacroSummary } from '@/services';
 import { macroPageStyles } from './MacroPage.styles';
 import { useMacroPage, type UseMacroPageResult } from './useMacroPage';
 
@@ -326,8 +326,9 @@ export const MacroPage = () => {
 
               <Box sx={styles.field}>
                 <Typography sx={styles.label}>{t('settings.macros.properties.interrupt')}</Typography>
-                <Box component="select" sx={styles.input} value={vm.draft.interruptPolicy} onChange={(e) => vm.updateDraft({ interruptPolicy: e.target.value })}>
+                <Box component="select" sx={styles.input} value={vm.draft.interruptPolicy} onChange={(e) => vm.updateDraft({ interruptPolicy: e.target.value as MacroInterruptPolicy })}>
                   <option value="ignore">{t('settings.macros.interrupt.ignore')}</option>
+                  <option value="stop-current">{t('settings.macros.interrupt.stop')}</option>
                   <option value="stop-current-and-run">{t('settings.macros.interrupt.restart')}</option>
                 </Box>
               </Box>

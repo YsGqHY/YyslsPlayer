@@ -80,7 +80,7 @@ export const macroPageEnUS: Messages = {
       runtimeErrors: {
         MACRO_PLAYER_ACTIVE: 'A MIDI track is loaded or playing, so the macro trigger was blocked. Stop playback and try again.',
         MACRO_RECORDING_ACTIVE: 'A macro is being recorded and cannot be triggered at the same time.',
-        MACRO_BUSY: 'Another macro is running and "When triggered while running" is not set to restart.',
+        MACRO_BUSY: 'Another macro is running and "When triggered while running" is set to ignore the new trigger.',
         MACRO_NOT_FOUND: 'Macro not found; it may have been deleted.',
         MACRO_NO_STEPS: 'This macro has no steps.',
         MACRO_INVALID: 'Macro configuration is invalid.',
@@ -171,6 +171,7 @@ export const macroPageEnUS: Messages = {
       },
       interrupt: {
         ignore: 'Ignore new trigger',
+        stop: 'Stop running macro',
         restart: 'Stop current and rerun',
       },
       confirmDelete: {

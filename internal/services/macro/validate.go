@@ -53,7 +53,7 @@ func normalizeProfile(row *storage.MacroProfile) {
 	if row.InterruptPolicy == "" {
 		row.InterruptPolicy = InterruptIgnore
 	}
-	if row.InterruptPolicy != InterruptIgnore && row.InterruptPolicy != InterruptRestart {
+	if row.InterruptPolicy != InterruptIgnore && row.InterruptPolicy != InterruptStop && row.InterruptPolicy != InterruptRestart {
 		row.InterruptPolicy = InterruptIgnore
 	}
 }

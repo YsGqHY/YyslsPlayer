@@ -72,6 +72,7 @@ export {
   type MacroDetail,
   type MacroDeviceKind,
   type MacroErrorEvent,
+  type MacroInterruptPolicy,
   type MacroRepeatMode,
   type MacroRunState,
   type MacroState,

@@ -28,12 +28,20 @@ func (s *Service) RunMacro(ctx context.Context, id uint) (MacroStateDTO, error) 
 		return MacroStateDTO{}, ErrMacroRecording
 	}
 
-	if err := s.ensurePlayerIdle(); err != nil {
-		return MacroStateDTO{}, err
-	}
 	detail, ok := s.store().GetMacroDetail(id)
 	if !ok {
 		return MacroStateDTO{}, ErrMacroNotFound
+	}
+	if detail.Profile.InterruptPolicy == InterruptStop {
+		s.mu.Lock()
+		hasCurrent := s.current != nil
+		s.mu.Unlock()
+		if hasCurrent {
+			return s.stopRunning(context.Background(), StateStopped, "triggered-stop")
+		}
+	}
+	if err := s.ensurePlayerIdle(); err != nil {
+		return MacroStateDTO{}, err
 	}
 	planned, err := planSteps(detail.Steps)
 	if err != nil {
@@ -58,7 +66,13 @@ func (s *Service) RunMacro(ctx context.Context, id uint) (MacroStateDTO, error) 
 
 	s.mu.Lock()
 	if s.current != nil {
-		if detail.Profile.InterruptPolicy != InterruptRestart {
+		switch detail.Profile.InterruptPolicy {
+		case InterruptStop:
+			s.mu.Unlock()
+			return s.stopRunning(context.Background(), StateStopped, "triggered-stop")
+		case InterruptRestart:
+			// Continue below: stop the active session, then install the new one.
+		default:
 			state := s.state
 			s.mu.Unlock()
 			return state, ErrMacroBusy

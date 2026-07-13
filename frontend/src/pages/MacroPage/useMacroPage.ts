@@ -6,6 +6,7 @@ import {
   recordFromEvent,
   type AssignableKey,
   type MacroDetail,
+  type MacroInterruptPolicy,
   type MacroRepeatMode,
   type MacroRunState,
   type MacroStep,
@@ -25,7 +26,7 @@ export interface DraftMacro {
   repeatMode: MacroRepeatMode;
   repeatCount: number;
   repeatIntervalMs: number;
-  interruptPolicy: string;
+  interruptPolicy: MacroInterruptPolicy;
   steps: MacroStep[];
 }
 

@@ -22,7 +22,7 @@ func sampleDetail() storage.MacroDetail {
 			RepeatMode:         RepeatModeCount,
 			RepeatCount:        5,
 			RepeatIntervalMs:   30,
-			InterruptPolicy:    InterruptIgnore,
+			InterruptPolicy:    InterruptStop,
 		},
 		Steps: []storage.MacroStep{
 			{Kind: StepKeyTap, KeyLabel: "A", VirtualKey: 65, ScanCode: 30, DeviceKind: DeviceKeyboard, ModifierKeysJSON: "[]", PayloadJSON: "{}", DurationMs: 40},
@@ -61,7 +61,7 @@ func TestPortableRoundTrip(t *testing.T) {
 	if req.Enabled {
 		t.Errorf("imported macro should be disabled")
 	}
-	if req.Name != "Combo" || req.RepeatMode != RepeatModeCount || req.RepeatCount != 5 || req.RepeatIntervalMs != 30 {
+	if req.Name != "Combo" || req.RepeatMode != RepeatModeCount || req.RepeatCount != 5 || req.RepeatIntervalMs != 30 || req.InterruptPolicy != InterruptStop {
 		t.Errorf("profile fields not preserved: %+v", req)
 	}
 	if req.TriggerAccelerator != "Ctrl+Alt+1" {

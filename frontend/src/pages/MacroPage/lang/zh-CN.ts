@@ -80,7 +80,7 @@ export const macroPageZhCN: Messages = {
       runtimeErrors: {
         MACRO_PLAYER_ACTIVE: '正在加载或演奏 MIDI，已暂时拦截宏触发；停止演奏后再试',
         MACRO_RECORDING_ACTIVE: '正在录制宏，无法同时触发',
-        MACRO_BUSY: '已有宏在运行，且未设置“运行中再次触发”为重启',
+        MACRO_BUSY: '已有宏在运行，当前“运行中再次触发”设为忽略新触发',
         MACRO_NOT_FOUND: '找不到该宏，可能已被删除',
         MACRO_NO_STEPS: '该宏没有任何步骤',
         MACRO_INVALID: '宏配置无效',
@@ -171,6 +171,7 @@ export const macroPageZhCN: Messages = {
       },
       interrupt: {
         ignore: '忽略新触发',
+        stop: '停止运行宏',
         restart: '停止当前并重跑',
       },
       confirmDelete: {

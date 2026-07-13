@@ -13,6 +13,7 @@ const (
 	RepeatModeToggle = "toggle"
 
 	InterruptIgnore  = "ignore"
+	InterruptStop    = "stop-current"
 	InterruptRestart = "stop-current-and-run"
 
 	StepDelay       = "delay"

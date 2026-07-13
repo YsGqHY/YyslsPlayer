@@ -36,6 +36,7 @@ export type MacroStepKind =
   | 'text';
 export type MacroRunState = 'idle' | 'running' | 'stopping' | 'completed' | 'stopped' | 'error';
 export type MacroRepeatMode = 'once' | 'count' | 'hold' | 'toggle';
+export type MacroInterruptPolicy = 'ignore' | 'stop-current' | 'stop-current-and-run';
 export type MacroDeviceKind = 'keyboard' | 'mouse' | '';
 export type RecordRunState = 'idle' | 'recording' | 'stopped' | 'error';
 
@@ -49,7 +50,7 @@ export interface MacroSummary {
   repeatMode: MacroRepeatMode;
   repeatCount: number;
   repeatIntervalMs: number;
-  interruptPolicy: string;
+  interruptPolicy: MacroInterruptPolicy;
   stepCount: number;
   registered: boolean;
   errorCode: string;
@@ -87,7 +88,7 @@ export interface SaveMacroRequest {
   repeatMode: MacroRepeatMode;
   repeatCount: number;
   repeatIntervalMs: number;
-  interruptPolicy: string;
+  interruptPolicy: MacroInterruptPolicy;
   steps: MacroStep[];
 }
 
@@ -182,7 +183,7 @@ const mapSummary = (value: unknown): MacroSummary => {
     repeatMode: asString(r.repeatMode, 'once') as MacroRepeatMode,
     repeatCount: asNumber(r.repeatCount, 1),
     repeatIntervalMs: asNumber(r.repeatIntervalMs),
-    interruptPolicy: asString(r.interruptPolicy, 'ignore'),
+    interruptPolicy: asString(r.interruptPolicy, 'ignore') as MacroInterruptPolicy,
     stepCount: asNumber(r.stepCount),
     registered: asBoolean(r.registered),
     errorCode: asString(r.errorCode),
