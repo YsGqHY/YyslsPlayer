@@ -11,7 +11,7 @@ info:
   description: "燕云流音：面向《燕云十六声》36 键模式的 MIDI 导入、预览与按键模拟演奏工具" # The application description
   copyright: "(c) 2026, YyslsPlayer" # Copyright text
   comments: "燕云流音支持 MIDI 导入、试听预览和 36 键模式按键模拟演奏" # Comments
-  version: "0.0.1" # The application version
+  version: "1.1.1" # The application version
 
 # Dev mode configuration
 dev_mode:

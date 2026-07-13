@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "YyslsPlayer"
-  APP_VERSION: "1.1.0"
+  APP_VERSION: "1.1.1"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
